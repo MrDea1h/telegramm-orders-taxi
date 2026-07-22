@@ -1,4 +1,12 @@
 :8080 {
+	# The service worker script must always be revalidated — Workbox's
+	# navigateFallback routes ALL navigation requests (any path, not just
+	# "/") through whatever index.html the active SW has cached. If an
+	# edge/browser cache serves a stale sw.js, every route on the site
+	# (including brand-new static pages) silently reverts to an old build.
+	@sw path /sw.js /registerSW.js /workbox-*.js
+	header @sw Cache-Control "no-cache, no-store, must-revalidate"
+
 	# Same-origin webapp + api — the browser never needs CORS since both
 	# are served from this one origin. Match order matters: the API routes
 	# first, everything else falls through to the static SPA.
