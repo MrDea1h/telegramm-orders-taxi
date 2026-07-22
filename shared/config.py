@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     BOT_MODE: Literal["polling", "webhook"] = "polling"
     WEBHOOK_BASE_URL: str = ""
     WEBHOOK_SECRET: str = ""
+    # Deployed webapp URL — the bot's /start button opens this as a Telegram
+    # Mini App, which is how a real initData payload ever gets produced.
+    WEBAPP_URL: str = ""
 
     # --- Reserved for M2 (auth module): JWT issuance + Mini App initData +
     # Telegram Login Widget verification. Declared now so M2 needs no

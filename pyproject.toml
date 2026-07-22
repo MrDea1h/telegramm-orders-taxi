@@ -11,6 +11,17 @@ exclude = [".venv", "webapp", "infra"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's DI system requires Depends()/Body()/Query() calls in argument
+# defaults — that's how it builds the dependency graph, not an accidental
+# mutable default.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Body",
+    "fastapi.Query",
+    "api.app.deps.require_role",
+]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

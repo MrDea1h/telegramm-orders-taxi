@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { ThemeProvider } from './lib/theme'
 import { useAppStore } from './store/appStore'
+import { useAuthBootstrap } from './hooks/useAuthBootstrap'
 import { PhoneFrame } from './components/PhoneFrame'
 import { DevToolbar } from './components/DevToolbar'
 import { OnboardingScreen } from './screens/onboarding/OnboardingScreen'
@@ -11,10 +12,22 @@ import { DriverTodayScreen } from './screens/driver/DriverTodayScreen'
 import { AdminScreen } from './screens/admin/AdminScreen'
 
 function Screens() {
-  const { role, userScreen, showOnboarding } = useAppStore()
+  const { role, userScreen, showOnboarding, authReady, accessToken, user } = useAppStore()
+  const isAuthenticated = !!accessToken && !!user
 
-  if (showOnboarding) {
+  // showOnboarding (the dev-toolbar manual toggle) always wins, for quick
+  // design review without going through a real login. Otherwise gate on
+  // the real auth state established by useAuthBootstrap.
+  if (showOnboarding || (authReady && !isAuthenticated)) {
     return <OnboardingScreen />
+  }
+
+  if (!authReady) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    )
   }
 
   const key = role === 'user' ? userScreen : role
@@ -40,6 +53,8 @@ function Screens() {
 }
 
 function App() {
+  useAuthBootstrap()
+
   return (
     <ThemeProvider>
       <DevToolbar />

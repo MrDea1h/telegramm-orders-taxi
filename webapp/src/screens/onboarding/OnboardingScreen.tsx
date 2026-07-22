@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Button } from '../../components/ui/Button'
+import { TelegramLoginButton } from '../../components/TelegramLoginButton'
 import { haptics } from '../../lib/haptics'
+import { auth, ApiError } from '../../lib/api'
 import { useAppStore } from '../../store/appStore'
 
-type Stage = 'slides' | 'contact' | 'code' | 'pending'
+type Stage = 'slides' | 'authChoice' | 'emailForm' | 'code' | 'pending' | 'blocked'
+type FormMode = 'register' | 'login'
 
 const slides = [
   {
@@ -16,7 +19,7 @@ const slides = [
       </svg>
     ),
     title: 'Корпоративный водитель',
-    subtitle: 'Заказывайте поездки с водителем компании за 3–4 нажатия, прямо в Telegram.',
+    subtitle: 'Заказывайте поездки с водителем компании за 3–4 нажатия — с телефона или прямо в Telegram.',
   },
   {
     icon: (
@@ -40,13 +43,94 @@ const slides = [
   },
 ]
 
+const ERROR_MESSAGES: Record<string, string> = {
+  EMAIL_TAKEN: 'Этот email уже зарегистрирован и подтверждён — попробуйте войти.',
+  INVALID_CREDENTIALS: 'Неверный email или пароль.',
+  ACCOUNT_BLOCKED: 'Доступ к аккаунту заблокирован.',
+  EMAIL_NOT_CONFIRMED: 'Сначала подтвердите почту кодом из письма.',
+  CODE_INVALID: 'Неверный код.',
+  CODE_EXPIRED: 'Код истёк — запросите новый.',
+  CODE_TOO_MANY_ATTEMPTS: 'Слишком много попыток — запросите новый код.',
+  CODE_RATE_LIMITED: 'Слишком много запросов кода — попробуйте через час.',
+}
+
+function errorMessage(err: unknown): string {
+  if (err instanceof ApiError) return ERROR_MESSAGES[err.code] ?? err.message
+  return 'Что-то пошло не так. Попробуйте ещё раз.'
+}
+
 export function OnboardingScreen() {
   const [stage, setStage] = useState<Stage>('slides')
   const [slideIndex, setSlideIndex] = useState(0)
-  const [channel, setChannel] = useState<'email' | 'phone'>('email')
-  const [contact, setContact] = useState('')
+  const [mode, setMode] = useState<FormMode>('register')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [fullName, setFullName] = useState('')
   const [code, setCode] = useState(['', '', '', '', '', ''])
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const setShowOnboarding = useAppStore((s) => s.setShowOnboarding)
+  const setAuth = useAppStore((s) => s.setAuth)
+
+  function routeByStatus(status: string) {
+    if (status === 'verified') {
+      setShowOnboarding(false)
+    } else if (status === 'blocked') {
+      setStage('blocked')
+    } else {
+      setStage('pending')
+    }
+  }
+
+  async function handleEmailFormSubmit() {
+    setError(null)
+    setBusy(true)
+    try {
+      if (mode === 'register') {
+        await auth.register(email, password, fullName)
+        haptics.notification('success')
+        setStage('code')
+      } else {
+        const result = await auth.login(email, password)
+        haptics.notification('success')
+        setAuth({ access_token: result.access_token, refresh_token: result.refresh_token }, result.user)
+        routeByStatus(result.user.status)
+      }
+    } catch (err) {
+      haptics.notification('error')
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleCodeSubmit() {
+    setError(null)
+    setBusy(true)
+    try {
+      const result = await auth.verifyEmail(email, code.join(''))
+      haptics.notification('success')
+      setAuth({ access_token: result.access_token, refresh_token: result.refresh_token }, result.user)
+      routeByStatus(result.user.status)
+    } catch (err) {
+      haptics.notification('error')
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleCheckStatus() {
+    setBusy(true)
+    try {
+      const user = await auth.me()
+      routeByStatus(user.status)
+    } catch {
+      // still pending / network hiccup — stay on this screen
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <div className="flex h-full flex-col bg-[var(--tg-bg)]">
@@ -61,7 +145,7 @@ export function OnboardingScreen() {
           >
             <div className="flex justify-end">
               <button
-                onClick={() => setStage('contact')}
+                onClick={() => setStage('authChoice')}
                 className="text-[13px] font-medium text-[var(--tg-text-secondary)]"
               >
                 Пропустить
@@ -103,7 +187,7 @@ export function OnboardingScreen() {
                   if (slideIndex < slides.length - 1) {
                     setSlideIndex((i) => i + 1)
                   } else {
-                    setStage('contact')
+                    setStage('authChoice')
                   }
                 }}
               >
@@ -113,75 +197,116 @@ export function OnboardingScreen() {
           </motion.div>
         )}
 
-        {stage === 'contact' && (
+        {stage === 'authChoice' && (
           <motion.div
-            key="contact"
+            key="authChoice"
+            initial={{ opacity: 0, x: 24 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -24 }}
+            className="flex h-full flex-col justify-center gap-4 px-6 py-10"
+          >
+            <h2 className="text-center text-[20px] font-semibold text-[var(--tg-text)]">Вход в CorpRide</h2>
+            <p className="mb-2 text-center text-[13px] text-[var(--tg-text-secondary)]">
+              Выберите способ входа — оба ведут в один и тот же аккаунт.
+            </p>
+
+            <TelegramLoginButton />
+
+            <div className="flex items-center gap-3 text-[12px] text-[var(--tg-text-secondary)]">
+              <div className="h-px flex-1 bg-[var(--tg-border)]" />
+              или
+              <div className="h-px flex-1 bg-[var(--tg-border)]" />
+            </div>
+
+            <Button
+              full
+              size="lg"
+              variant="secondary"
+              onClick={() => {
+                setMode('register')
+                setStage('emailForm')
+              }}
+            >
+              Продолжить с email
+            </Button>
+
+            <button
+              onClick={() => setStage('slides')}
+              className="mt-2 self-center text-[13px] font-medium text-[var(--tg-text-secondary)]"
+            >
+              Назад
+            </button>
+          </motion.div>
+        )}
+
+        {stage === 'emailForm' && (
+          <motion.div
+            key="emailForm"
             initial={{ opacity: 0, x: 24 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -24 }}
             className="flex h-full flex-col px-6 py-10"
           >
-            <h2 className="text-[20px] font-semibold text-[var(--tg-text)]">Привяжите аккаунт</h2>
-            <p className="mt-1 text-[13px] text-[var(--tg-text-secondary)]">
-              Укажите корпоративную почту или поделитесь номером телефона.
-            </p>
+            <h2 className="text-[20px] font-semibold text-[var(--tg-text)]">
+              {mode === 'register' ? 'Регистрация' : 'Вход'}
+            </h2>
 
             <div className="mt-6 flex rounded-2xl bg-[var(--tg-surface)] p-1">
-              {(['email', 'phone'] as const).map((c) => (
+              {(['register', 'login'] as const).map((m) => (
                 <button
-                  key={c}
-                  onClick={() => setChannel(c)}
+                  key={m}
+                  onClick={() => {
+                    setMode(m)
+                    setError(null)
+                  }}
                   className={`flex-1 rounded-xl py-2 text-[13px] font-medium transition-colors ${
-                    channel === c ? 'bg-[var(--tg-bg)] text-primary shadow-sm' : 'text-[var(--tg-text-secondary)]'
+                    mode === m ? 'bg-[var(--tg-bg)] text-primary shadow-sm' : 'text-[var(--tg-text-secondary)]'
                   }`}
                 >
-                  {c === 'email' ? 'Почта' : 'Телефон'}
+                  {m === 'register' ? 'Регистрация' : 'Вход'}
                 </button>
               ))}
             </div>
 
-            <div className="mt-6">
-              {channel === 'email' ? (
-                <>
-                  <input
-                    value={contact}
-                    onChange={(e) => setContact(e.target.value)}
-                    placeholder="you@company.ru"
-                    className="h-12 w-full rounded-2xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-4 text-[15px] text-[var(--tg-text)] outline-none focus:border-primary"
-                  />
-                  <Button full size="lg" className="mt-4" disabled={!contact} onClick={() => setStage('code')}>
-                    Получить код
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center gap-3 rounded-2xl border border-dashed border-[var(--tg-border)] p-4">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary/10 text-secondary">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                        <path d="M6.6 10.8a15.1 15.1 0 006.6 6.6l2.2-2.2a1 1 0 011-.25 11 11 0 003.5.56 1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1 11 11 0 00.56 3.5 1 1 0 01-.25 1z" fill="currentColor" />
-                      </svg>
-                    </div>
-                    <p className="text-[13px] text-[var(--tg-text-secondary)]">
-                      Номер придёт напрямую от Telegram — вводить вручную не нужно.
-                    </p>
-                  </div>
-                  <Button
-                    full
-                    size="lg"
-                    className="mt-4"
-                    onClick={() => {
-                      haptics.notification('success')
-                      setStage('pending')
-                    }}
-                  >
-                    Поделиться контактом
-                  </Button>
-                </>
+            <div className="mt-6 flex flex-col gap-3">
+              {mode === 'register' && (
+                <input
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="Имя и фамилия"
+                  className="h-12 w-full rounded-2xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-4 text-[15px] text-[var(--tg-text)] outline-none focus:border-primary"
+                />
               )}
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.ru"
+                type="email"
+                className="h-12 w-full rounded-2xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-4 text-[15px] text-[var(--tg-text)] outline-none focus:border-primary"
+              />
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Пароль"
+                type="password"
+                className="h-12 w-full rounded-2xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-4 text-[15px] text-[var(--tg-text)] outline-none focus:border-primary"
+              />
+
+              {error && <p className="text-[13px] text-danger">{error}</p>}
+
+              <Button
+                full
+                size="lg"
+                className="mt-2"
+                disabled={!email || !password || (mode === 'register' && !fullName) || busy}
+                onClick={handleEmailFormSubmit}
+              >
+                {mode === 'register' ? 'Зарегистрироваться' : 'Войти'}
+              </Button>
             </div>
 
             <button
-              onClick={() => setStage('slides')}
+              onClick={() => setStage('authChoice')}
               className="mt-auto self-center text-[13px] font-medium text-[var(--tg-text-secondary)]"
             >
               Назад
@@ -199,7 +324,7 @@ export function OnboardingScreen() {
           >
             <h2 className="text-[20px] font-semibold text-[var(--tg-text)]">Введите код</h2>
             <p className="mt-1 text-[13px] text-[var(--tg-text-secondary)]">
-              Отправили 6-значный код на {contact || 'вашу почту'}. Код действует 10 минут.
+              Отправили 6-значный код на {email}. Код действует 10 минут.
             </p>
 
             <div className="mt-8 flex justify-between gap-2">
@@ -220,19 +345,14 @@ export function OnboardingScreen() {
               ))}
             </div>
 
-            <p className="mt-4 text-center text-[13px] text-[var(--tg-text-secondary)]">
-              Не пришёл код? <span className="font-medium text-primary">Отправить снова (0:58)</span>
-            </p>
+            {error && <p className="mt-4 text-center text-[13px] text-danger">{error}</p>}
 
             <Button
               full
               size="lg"
               className="mt-8"
-              disabled={code.some((d) => !d)}
-              onClick={() => {
-                haptics.notification('success')
-                setStage('pending')
-              }}
+              disabled={code.some((d) => !d) || busy}
+              onClick={handleCodeSubmit}
             >
               Подтвердить
             </Button>
@@ -256,14 +376,33 @@ export function OnboardingScreen() {
                 <path d="M12 7v5l3.5 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </motion.div>
-            <h2 className="text-[19px] font-semibold text-[var(--tg-text)]">Заявка отправлена</h2>
+            <h2 className="text-[19px] font-semibold text-[var(--tg-text)]">Заявка на рассмотрении</h2>
             <p className="max-w-[260px] text-[14px] text-[var(--tg-text-secondary)]">
-              Администратор проверит данные и подтвердит доступ. Обычно это занимает несколько минут — мы пришлём
-              уведомление в этот чат.
+              Администратор проверит данные и подтвердит доступ. Мы уведомим вас, как только это произойдёт.
             </p>
-            <Button size="lg" className="mt-4" onClick={() => setShowOnboarding(false)}>
-              Готово (демо: перейти в приложение)
+            <Button size="lg" className="mt-4" onClick={handleCheckStatus} disabled={busy}>
+              Проверить статус
             </Button>
+          </motion.div>
+        )}
+
+        {stage === 'blocked' && (
+          <motion.div
+            key="blocked"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center"
+          >
+            <div className="flex h-24 w-24 items-center justify-center rounded-full bg-danger/10 text-danger">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </div>
+            <h2 className="text-[19px] font-semibold text-[var(--tg-text)]">Доступ заблокирован</h2>
+            <p className="max-w-[260px] text-[14px] text-[var(--tg-text-secondary)]">
+              Обратитесь к администратору сервиса за подробностями.
+            </p>
           </motion.div>
         )}
       </AnimatePresence>

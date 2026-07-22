@@ -3,7 +3,9 @@ import os
 import pytest
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import text
 from testcontainers.postgres import PostgresContainer
+from testcontainers.redis import RedisContainer
 
 from shared.config import get_settings
 
@@ -38,3 +40,71 @@ def _migrate(database_url):
     cfg.set_main_option("sqlalchemy.url", database_url)
     cfg.set_main_option("script_location", "shared/db/migrations")
     command.upgrade(cfg, "head")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def redis_url():
+    with RedisContainer("redis:7-alpine") as redis:
+        url = f"redis://{redis.get_container_host_ip()}:{redis.get_exposed_port(6379)}/0"
+        os.environ["REDIS_URL"] = url
+        get_settings.cache_clear()
+        yield url
+        get_settings.cache_clear()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _auth_env(redis_url):
+    """JWT/Telegram auth modules need a non-empty BOT_TOKEN/JWT_SECRET —
+    fixed test values so HMAC test vectors are reproducible across runs."""
+    os.environ["BOT_TOKEN"] = "123456:test-bot-token"
+    os.environ["JWT_SECRET"] = "test-jwt-secret"
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+async def _clean_tables(_migrate):
+    """Function-scoped truncate — the Postgres/Redis containers are
+    session-scoped for speed, so each test needs a clean slate rather than
+    accumulating users/codes/events across the whole file."""
+    from shared.db.engine import get_sessionmaker
+    from shared.redis_client import get_redis
+
+    async with get_sessionmaker()() as session:
+        await session.execute(
+            text(
+                "TRUNCATE users, verification_codes, user_events, push_subscriptions,"
+                " orders, order_events, addresses, driver_time_off, driver_schedule,"
+                " drivers, settings CASCADE"
+            )
+        )
+        await session.commit()
+    await get_redis().flushdb()
+    yield
+
+
+@pytest.fixture
+def client():
+    """Lazy import (after the env-setting fixtures above have already run)
+    — same reasoning as tests/test_api_smoke.py's lazy import."""
+    from fastapi.testclient import TestClient
+
+    from api.app.main import app
+
+    with TestClient(app) as c:
+        yield c
+
+
+@pytest.fixture
+def captured_emails(monkeypatch):
+    """Registration sends a real code via shared.email_send.send_email;
+    tests need the plaintext code (only ever hashed in the DB), so capture
+    it here instead of sending it."""
+    sent = []
+
+    async def _fake_send_email(to, subject, body):
+        sent.append({"to": to, "subject": subject, "body": body})
+
+    monkeypatch.setattr("api.app.auth_api.send_email", _fake_send_email)
+    return sent

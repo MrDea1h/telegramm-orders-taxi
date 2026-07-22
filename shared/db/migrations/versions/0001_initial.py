@@ -43,11 +43,15 @@ def upgrade() -> None:
         sa.Column("phone", sa.String(32)),
         sa.Column("can_order", sa.Boolean(), nullable=False, server_default=sa.text("true")),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
-        sa.CheckConstraint("role in ('user','driver','admin')", name="ck_users_role"),
-        sa.CheckConstraint("status in ('pending','verified','blocked')", name="ck_users_status"),
-        sa.CheckConstraint(
-            "telegram_id IS NOT NULL OR email IS NOT NULL", name="ck_users_identity_present"
-        ),
+        # NOTE: names here are the naming-convention placeholder (matching
+        # models.py's ORM CheckConstraint names) — Alembic applies
+        # Base.metadata's naming convention ("ck_%(table_name)s_%(constraint_name)s")
+        # to op.create_table's constraints too, since env.py configures
+        # context with target_metadata=Base.metadata. Giving an
+        # already-fully-prefixed name here would get double-prefixed.
+        sa.CheckConstraint("role in ('user','driver','admin')", name="role"),
+        sa.CheckConstraint("status in ('pending','verified','blocked')", name="status"),
+        sa.CheckConstraint("telegram_id IS NOT NULL OR email IS NOT NULL", name="identity_present"),
     )
 
     op.create_table(
@@ -88,7 +92,7 @@ def upgrade() -> None:
         sa.Column("weekday", sa.SmallInteger(), nullable=False),
         sa.Column("start_time", sa.Time(), nullable=False),
         sa.Column("end_time", sa.Time(), nullable=False),
-        sa.CheckConstraint("weekday between 0 and 6", name="ck_driver_schedule_weekday_range"),
+        sa.CheckConstraint("weekday between 0 and 6", name="weekday_range"),
     )
     op.create_index("ix_driver_schedule_driver_id", "driver_schedule", ["driver_id"])
 
@@ -173,7 +177,7 @@ def upgrade() -> None:
             "status in ('draft','pending_driver','confirmed','driver_en_route','driver_arrived',"
             "'in_progress','completed','cancelled_by_user','cancelled_by_driver',"
             "'cancelled_by_admin','expired')",
-            name="ck_orders_status",
+            name="status",
         ),
     )
     op.create_index("ix_orders_user_id", "orders", ["user_id"])
@@ -268,7 +272,7 @@ def upgrade() -> None:
         sa.Column("channel", sa.String(20), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("attempts", sa.SmallInteger(), nullable=False, server_default="0"),
-        sa.CheckConstraint("channel in ('email','phone')", name="ck_verification_codes_channel"),
+        sa.CheckConstraint("channel in ('email','phone')", name="channel"),
     )
     op.create_index("ix_verification_codes_user_id", "verification_codes", ["user_id"])
 

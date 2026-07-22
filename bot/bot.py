@@ -6,7 +6,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.fsm.storage.redis import RedisStorage
-from aiogram.types import Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
 
 from shared.config import get_settings
 from shared.db.migrate import upgrade_to_head
@@ -16,11 +16,18 @@ router = Router(name="core")
 
 @router.message(CommandStart())
 async def cmd_start(message: Message) -> None:
-    # Real onboarding / Telegram Login Widget / order flows land in later
-    # milestones — this is only a liveness check for M1. The bot is an
-    # additional entry channel now, not the primary UI (see M1 plan): the
-    # PWA is reachable standalone, this account is optional convenience.
-    await message.answer("CorpRide bot is alive.")
+    # Real onboarding/order flows live in the PWA now, not the bot (see the
+    # M1 pivot) — the bot's only job is this liveness reply plus a WebApp
+    # button, which is what actually lets a Mini App `initData` payload ever
+    # get produced (opening a plain link does not).
+    settings = get_settings()
+    markup = None
+    if settings.WEBAPP_URL:
+        button = InlineKeyboardButton(
+            text="Открыть CorpRide", web_app=WebAppInfo(url=settings.WEBAPP_URL)
+        )
+        markup = InlineKeyboardMarkup(inline_keyboard=[[button]])
+    await message.answer("CorpRide bot is alive.", reply_markup=markup)
 
 
 async def _run_polling(settings) -> None:
