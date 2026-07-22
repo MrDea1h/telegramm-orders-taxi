@@ -51,9 +51,13 @@ export const useAppStore = create<AppState>((set) => ({
   authReady: false,
   setAuth: (tokens, user) => {
     localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refresh_token)
-    set({ accessToken: tokens.access_token, user, authReady: true })
+    // `role` drives which screens render (see App.tsx) — in production it
+    // always tracks the real authenticated user's role. DevToolbar (dev
+    // build only) can still override it locally afterwards, purely for
+    // previewing other roles' screens without needing separate accounts.
+    set({ accessToken: tokens.access_token, user, role: user.role, authReady: true })
   },
-  setUser: (user) => set({ user }),
+  setUser: (user) => set({ user, role: user.role }),
   clearAuth: () => {
     localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY)
     set({ accessToken: null, user: null, authReady: true })

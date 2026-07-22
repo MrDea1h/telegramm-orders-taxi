@@ -1,9 +1,9 @@
+import { type ComponentType, type ReactNode, useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ThemeProvider } from './lib/theme'
 import { useAppStore } from './store/appStore'
 import { useAuthBootstrap } from './hooks/useAuthBootstrap'
-import { PhoneFrame } from './components/PhoneFrame'
-import { DevToolbar } from './components/DevToolbar'
+import { AppShell } from './components/AppShell'
 import { OnboardingScreen } from './screens/onboarding/OnboardingScreen'
 import { HomeScreen } from './screens/user/HomeScreen'
 import { OrderWizardScreen } from './screens/user/OrderWizardScreen'
@@ -52,17 +52,48 @@ function Screens() {
   )
 }
 
+// Dev-only chrome (role/theme switcher, phone-mockup bezel for desktop
+// design review) is dynamically imported so it never ends up in the
+// production bundle at all, not just unrendered — real users should never
+// see a "demo panel" or a fake phone border.
+function DevChrome({ children }: { children: ReactNode }) {
+  const [Comps, setComps] = useState<{
+    DevToolbar: ComponentType
+    PhoneFrame: ComponentType<{ children: ReactNode }>
+  } | null>(null)
+
+  useEffect(() => {
+    Promise.all([import('./components/DevToolbar'), import('./components/PhoneFrame')]).then(
+      ([toolbar, frame]) => setComps({ DevToolbar: toolbar.DevToolbar, PhoneFrame: frame.PhoneFrame }),
+    )
+  }, [])
+
+  if (!Comps) return null
+  const { DevToolbar, PhoneFrame } = Comps
+  return (
+    <>
+      <DevToolbar />
+      <div className="pt-12">
+        <PhoneFrame>{children}</PhoneFrame>
+      </div>
+    </>
+  )
+}
+
 function App() {
   useAuthBootstrap()
 
   return (
     <ThemeProvider>
-      <DevToolbar />
-      <div className="pt-12">
-        <PhoneFrame>
+      {import.meta.env.DEV ? (
+        <DevChrome>
           <Screens />
-        </PhoneFrame>
-      </div>
+        </DevChrome>
+      ) : (
+        <AppShell>
+          <Screens />
+        </AppShell>
+      )}
     </ThemeProvider>
   )
 }
