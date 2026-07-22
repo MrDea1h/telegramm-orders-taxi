@@ -42,7 +42,10 @@ services:
       redis:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8000:8000"
+      # Host-side port is configurable (API_HOST_PORT) so this stack can run
+      # alongside others on a shared host without a fixed-port collision —
+      # always bound to localhost only, never exposed publicly directly.
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')\""]
       interval: 10s
