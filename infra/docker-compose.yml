@@ -119,6 +119,27 @@ services:
       retries: 5
     networks: [corpride-net]
 
+  webapp:
+    build:
+      context: ..
+      dockerfile: webapp/Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      # Not localhost-only, unlike api/postgres/redis: this is the one
+      # thing meant to be reached from an actual browser on another
+      # machine. Plain HTTP for now (no domain/TLS yet) — fine for a
+      # throwaway test deploy, revisit before anything but disposable data
+      # goes through it.
+      - "${WEBAPP_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [corpride-net]
+
 networks:
   corpride-net:
     driver: bridge

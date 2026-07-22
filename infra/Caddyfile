@@ -1,0 +1,19 @@
+:8080 {
+	# Same-origin webapp + api — the browser never needs CORS since both
+	# are served from this one origin. Match order matters: the API routes
+	# first, everything else falls through to the static SPA.
+	handle /v1/* {
+		reverse_proxy api:8000
+	}
+
+	handle /healthz {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv/webapp
+		try_files {path} /index.html
+		file_server
+		encode gzip
+	}
+}
