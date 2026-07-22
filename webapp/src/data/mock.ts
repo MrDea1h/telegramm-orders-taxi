@@ -11,6 +11,27 @@ export const recentAddresses: Address[] = [
   { id: 'addr-2', label: '', addressText: 'ул. Кузнецкий Мост, 3' },
 ]
 
+// Stand-in for geocoder autocomplete (Yandex Maps / 2GIS suggest API in prod) —
+// filtered client-side here so manual address entry has something to suggest from.
+export const addressSuggestions: string[] = [
+  'ул. Тверская, 12',
+  'ул. Тверская, 25',
+  'Ленинский проспект, 45',
+  'Ленинский проспект, 158',
+  'Пресненская наб., 8, стр. 1',
+  'Пресненская наб., 12',
+  'ул. Кузнецкий Мост, 3',
+  'ул. Кузнецкий Мост, 21',
+  'Шереметьево, терминал D',
+  'Шереметьево, терминал B',
+  'Внуково, терминал А',
+  'Домодедово, терминал',
+  'Новый Арбат, 15',
+  'Кутузовский проспект, 34',
+  'Садовническая ул., 82',
+  'проспект Мира, 101',
+]
+
 export const drivers: Driver[] = [
   {
     id: 'drv-1',

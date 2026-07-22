@@ -7,7 +7,7 @@ import { Card } from '../../components/ui/Card'
 import { RouteMap } from '../../components/ui/RouteMap'
 import { SuccessCheck } from '../../components/ui/SuccessCheck'
 import { Avatar } from '../../components/ui/Avatar'
-import { favoriteAddresses, recentAddresses, drivers, timeSlots } from '../../data/mock'
+import { addressSuggestions, favoriteAddresses, recentAddresses, drivers, timeSlots } from '../../data/mock'
 import type { Address } from '../../data/types'
 import { haptics } from '../../lib/haptics'
 import { useAppStore } from '../../store/appStore'
@@ -26,6 +26,7 @@ export function OrderWizardScreen() {
   const [from, setFrom] = useState<Address | null>(favoriteAddresses[0])
   const [to, setTo] = useState<Address | null>(null)
   const [pickingFor, setPickingFor] = useState<'from' | 'to' | null>(null)
+  const [addressQuery, setAddressQuery] = useState('')
   const [dayIndex, setDayIndex] = useState(0)
   const [slot, setSlot] = useState<string | null>(null)
   const [driverChoice, setDriverChoice] = useState<'any' | string>('any')
@@ -34,6 +35,21 @@ export function OrderWizardScreen() {
   const [submitted, setSubmitted] = useState(false)
 
   const eta = useMemo(() => ({ min: 35, km: 18 }), [from, to])
+
+  const suggestions = useMemo(() => {
+    const q = addressQuery.trim().toLowerCase()
+    if (!q) return []
+    return addressSuggestions.filter((s) => s.toLowerCase().includes(q)).slice(0, 5)
+  }, [addressQuery])
+
+  function pickAddress(addressText: string) {
+    haptics.selection()
+    const address: Address = { id: `custom-${addressText}`, label: '', addressText }
+    if (pickingFor === 'from') setFrom(address)
+    else setTo(address)
+    setPickingFor(null)
+    setAddressQuery('')
+  }
 
   const canContinue = [
     !!from && !!to,
@@ -75,46 +91,98 @@ export function OrderWizardScreen() {
         <AnimatePresence mode="wait">
           {step === 0 && (
             <motion.div key="s0" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="flex flex-col gap-4">
-              <AddressField label="Откуда" value={from} onPick={() => setPickingFor('from')} />
-              <AddressField label="Куда" value={to} onPick={() => setPickingFor('to')} />
+              <AddressField
+                label="Откуда"
+                value={from}
+                onPick={() => {
+                  setAddressQuery('')
+                  setPickingFor('from')
+                }}
+              />
+              <AddressField
+                label="Куда"
+                value={to}
+                onPick={() => {
+                  setAddressQuery('')
+                  setPickingFor('to')
+                }}
+              />
 
               {pickingFor && (
                 <Card className="p-3">
-                  <p className="mb-2 text-[12px] font-medium text-[var(--tg-text-secondary)]">Избранные адреса</p>
-                  <div className="flex flex-col gap-1">
-                    {favoriteAddresses.map((a) => (
-                      <button
-                        key={a.id}
-                        onClick={() => {
-                          haptics.selection()
-                          pickingFor === 'from' ? setFrom(a) : setTo(a)
-                          setPickingFor(null)
-                        }}
-                        className="flex items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] active:bg-black/5 dark:active:bg-white/5"
-                      >
-                        <span className="text-primary">★</span>
-                        <span className="font-medium text-[var(--tg-text)]">{a.label}</span>
-                        <span className="truncate text-[var(--tg-text-secondary)]">{a.addressText}</span>
-                      </button>
-                    ))}
+                  <div className="relative mb-3">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--tg-text-secondary)]"
+                    >
+                      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+                      <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                    </svg>
+                    <input
+                      autoFocus
+                      value={addressQuery}
+                      onChange={(e) => setAddressQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && addressQuery.trim()) pickAddress(addressQuery.trim())
+                      }}
+                      placeholder="Введите адрес или ориентир"
+                      className="h-11 w-full rounded-xl border border-[var(--tg-border)] bg-[var(--tg-bg)] pl-9 pr-3 text-[13px] text-[var(--tg-text)] outline-none focus:border-primary"
+                    />
                   </div>
-                  <p className="mb-2 mt-3 text-[12px] font-medium text-[var(--tg-text-secondary)]">Недавние</p>
-                  <div className="flex flex-col gap-1">
-                    {recentAddresses.map((a) => (
+
+                  {addressQuery.trim() ? (
+                    <div className="flex flex-col gap-1">
+                      {suggestions.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => pickAddress(s)}
+                          className="flex items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] text-[var(--tg-text)] active:bg-black/5 dark:active:bg-white/5"
+                        >
+                          <span className="text-[var(--tg-text-secondary)]">📍</span>
+                          <span className="truncate">{s}</span>
+                        </button>
+                      ))}
                       <button
-                        key={a.id}
-                        onClick={() => {
-                          haptics.selection()
-                          pickingFor === 'from' ? setFrom(a) : setTo(a)
-                          setPickingFor(null)
-                        }}
-                        className="flex items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] text-[var(--tg-text)] active:bg-black/5 dark:active:bg-white/5"
+                        onClick={() => pickAddress(addressQuery.trim())}
+                        className="mt-1 flex items-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-left text-[13px] font-medium text-primary active:bg-primary/5"
                       >
-                        <span className="text-[var(--tg-text-secondary)]">⏱</span>
-                        {a.addressText}
+                        Использовать «{addressQuery.trim()}»
                       </button>
-                    ))}
-                  </div>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="mb-2 text-[12px] font-medium text-[var(--tg-text-secondary)]">Избранные адреса</p>
+                      <div className="flex flex-col gap-1">
+                        {favoriteAddresses.map((a) => (
+                          <button
+                            key={a.id}
+                            onClick={() => pickAddress(a.addressText)}
+                            className="flex items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] active:bg-black/5 dark:active:bg-white/5"
+                          >
+                            <span className="text-primary">★</span>
+                            <span className="font-medium text-[var(--tg-text)]">{a.label}</span>
+                            <span className="truncate text-[var(--tg-text-secondary)]">{a.addressText}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mb-2 mt-3 text-[12px] font-medium text-[var(--tg-text-secondary)]">Недавние</p>
+                      <div className="flex flex-col gap-1">
+                        {recentAddresses.map((a) => (
+                          <button
+                            key={a.id}
+                            onClick={() => pickAddress(a.addressText)}
+                            className="flex items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] text-[var(--tg-text)] active:bg-black/5 dark:active:bg-white/5"
+                          >
+                            <span className="text-[var(--tg-text-secondary)]">⏱</span>
+                            {a.addressText}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </Card>
               )}
             </motion.div>
