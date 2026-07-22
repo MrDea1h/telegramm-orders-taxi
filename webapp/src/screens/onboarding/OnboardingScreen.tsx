@@ -205,7 +205,7 @@ export function OnboardingScreen() {
             exit={{ opacity: 0, x: -24 }}
             className="flex h-full flex-col justify-center gap-4 px-6 py-10"
           >
-            <h2 className="text-center text-[20px] font-semibold text-[var(--tg-text)]">Вход в CorpRide</h2>
+            <h2 className="text-center text-[20px] font-semibold text-[var(--tg-text)]">Вход в ApexRide</h2>
             <p className="mb-2 text-center text-[13px] text-[var(--tg-text-secondary)]">
               Выберите способ входа — оба ведут в один и тот же аккаунт.
             </p>

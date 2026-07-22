@@ -24,10 +24,10 @@ async def cmd_start(message: Message) -> None:
     markup = None
     if settings.WEBAPP_URL:
         button = InlineKeyboardButton(
-            text="Открыть CorpRide", web_app=WebAppInfo(url=settings.WEBAPP_URL)
+            text="Открыть ApexRide", web_app=WebAppInfo(url=settings.WEBAPP_URL)
         )
         markup = InlineKeyboardMarkup(inline_keyboard=[[button]])
-    await message.answer("CorpRide bot is alive.", reply_markup=markup)
+    await message.answer("ApexRide bot is alive.", reply_markup=markup)
 
 
 async def _run_polling(settings) -> None:

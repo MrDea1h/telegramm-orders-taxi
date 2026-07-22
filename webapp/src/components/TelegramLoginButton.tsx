@@ -5,7 +5,7 @@ import { haptics } from '../lib/haptics'
 
 declare global {
   interface Window {
-    onCorpRideTelegramAuth?: (user: Record<string, unknown>) => void
+    onApexRideTelegramAuth?: (user: Record<string, unknown>) => void
   }
 }
 
@@ -24,7 +24,7 @@ export function TelegramLoginButton() {
   useEffect(() => {
     if (!botUsername || !containerRef.current) return
 
-    window.onCorpRideTelegramAuth = async (tgUser) => {
+    window.onApexRideTelegramAuth = async (tgUser) => {
       try {
         const result = await auth.telegramLoginWidget(tgUser)
         haptics.notification('success')
@@ -40,12 +40,12 @@ export function TelegramLoginButton() {
     script.setAttribute('data-telegram-login', botUsername)
     script.setAttribute('data-size', 'large')
     script.setAttribute('data-radius', '16')
-    script.setAttribute('data-onauth', 'onCorpRideTelegramAuth(user)')
+    script.setAttribute('data-onauth', 'onApexRideTelegramAuth(user)')
     script.setAttribute('data-request-access', 'write')
     containerRef.current.appendChild(script)
 
     return () => {
-      delete window.onCorpRideTelegramAuth
+      delete window.onApexRideTelegramAuth
     }
   }, [botUsername, setAuth])
 

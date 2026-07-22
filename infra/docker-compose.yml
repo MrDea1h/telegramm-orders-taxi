@@ -1,20 +1,20 @@
-name: corpride
+name: apexride
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-corpride}
-      POSTGRES_USER: ${POSTGRES_USER:-corpride}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-corpride}
+      POSTGRES_DB: ${POSTGRES_DB:-apexride}
+      POSTGRES_USER: ${POSTGRES_USER:-apexride}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-apexride}
     volumes:
-      - corpride-pgdata:/var/lib/postgresql/data
+      - apexride-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-corpride} -d ${POSTGRES_DB:-corpride}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-apexride} -d ${POSTGRES_DB:-apexride}"]
       interval: 5s
       timeout: 3s
       retries: 10
-    networks: [corpride-net]
+    networks: [apexride-net]
 
   redis:
     image: redis:7-alpine
@@ -24,7 +24,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    networks: [corpride-net]
+    networks: [apexride-net]
 
   api:
     build:
@@ -40,7 +40,7 @@ services:
       # "localhost" instead of "postgres"/"redis" — each container has its
       # own network namespace, so "localhost" there means the container
       # itself, not its neighbor.
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-corpride}:${POSTGRES_PASSWORD:-corpride}@postgres:5432/${POSTGRES_DB:-corpride}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-apexride}:${POSTGRES_PASSWORD:-apexride}@postgres:5432/${POSTGRES_DB:-apexride}
       REDIS_URL: redis://redis:6379/0
       BOT_TOKEN: ${BOT_TOKEN:-}
       JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
@@ -59,7 +59,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-    networks: [corpride-net]
+    networks: [apexride-net]
 
   bot:
     build:
@@ -75,7 +75,7 @@ services:
       # "localhost" instead of "postgres"/"redis" — each container has its
       # own network namespace, so "localhost" there means the container
       # itself, not its neighbor.
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-corpride}:${POSTGRES_PASSWORD:-corpride}@postgres:5432/${POSTGRES_DB:-corpride}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-apexride}:${POSTGRES_PASSWORD:-apexride}@postgres:5432/${POSTGRES_DB:-apexride}
       REDIS_URL: redis://redis:6379/0
       BOT_TOKEN: ${BOT_TOKEN:-}
     depends_on:
@@ -88,7 +88,7 @@ services:
       interval: 20s
       timeout: 3s
       retries: 5
-    networks: [corpride-net]
+    networks: [apexride-net]
 
   worker:
     build:
@@ -104,7 +104,7 @@ services:
       # "localhost" instead of "postgres"/"redis" — each container has its
       # own network namespace, so "localhost" there means the container
       # itself, not its neighbor.
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-corpride}:${POSTGRES_PASSWORD:-corpride}@postgres:5432/${POSTGRES_DB:-corpride}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-apexride}:${POSTGRES_PASSWORD:-apexride}@postgres:5432/${POSTGRES_DB:-apexride}
       REDIS_URL: redis://redis:6379/0
       BOT_TOKEN: ${BOT_TOKEN:-}
     depends_on:
@@ -117,7 +117,7 @@ services:
       interval: 20s
       timeout: 3s
       retries: 5
-    networks: [corpride-net]
+    networks: [apexride-net]
 
   webapp:
     build:
@@ -138,11 +138,11 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-    networks: [corpride-net]
+    networks: [apexride-net]
 
 networks:
-  corpride-net:
+  apexride-net:
     driver: bridge
 
 volumes:
-  corpride-pgdata:
+  apexride-pgdata:

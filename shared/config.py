@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     ENV: Literal["dev", "test", "prod"] = "dev"
     LOG_LEVEL: str = "INFO"
 
-    DATABASE_URL: str = "postgresql+asyncpg://corpride:corpride@localhost:5432/corpride"
+    DATABASE_URL: str = "postgresql+asyncpg://apexride:apexride@localhost:5432/apexride"
     DB_ECHO: bool = False
     REDIS_URL: str = "redis://localhost:6379/0"
 
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
-    SMTP_FROM: str = "CorpRide <no-reply@example.com>"
+    SMTP_FROM: str = "ApexRide <no-reply@example.com>"
     SMTP_USE_TLS: bool = True
 
     VERIFICATION_CODE_TTL_MIN: int = 10

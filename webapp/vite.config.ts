@@ -12,8 +12,8 @@ export default defineConfig({
       // Web Push subscription wiring lands in M4 once the backend endpoint
       // exists — this only makes the app installable/offline-capable.
       manifest: {
-        name: 'CorpRide',
-        short_name: 'CorpRide',
+        name: 'ApexRide',
+        short_name: 'ApexRide',
         description: 'Заказ корпоративного водителя',
         theme_color: '#7C3AED',
         background_color: '#FFFFFF',

@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     logger.info("api shutting down")
 
 
-app = FastAPI(title="CorpRide API", lifespan=lifespan)
+app = FastAPI(title="ApexRide API", lifespan=lifespan)
 
 register_error_handlers(app)
 

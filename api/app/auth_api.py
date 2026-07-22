@@ -171,7 +171,7 @@ async def register(body: RegisterRequest, session: AsyncSession = Depends(get_se
 
     await send_email(
         to=body.email,
-        subject="Код подтверждения CorpRide",
+        subject="Код подтверждения ApexRide",
         body=f"Ваш код: {code}\nОн действует {settings.VERIFICATION_CODE_TTL_MIN} минут.",
     )
 

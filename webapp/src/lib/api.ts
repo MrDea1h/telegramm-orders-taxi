@@ -1,6 +1,6 @@
 import { useAppStore } from '../store/appStore'
 
-export const REFRESH_TOKEN_STORAGE_KEY = 'corpride_refresh_token'
+export const REFRESH_TOKEN_STORAGE_KEY = 'apexride_refresh_token'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
