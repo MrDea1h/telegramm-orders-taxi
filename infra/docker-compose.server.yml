@@ -1,0 +1,24 @@
+# Server-only overlay — NOT used for local dev. Attaches webapp to the
+# shared production Caddy's docker network (a different project on this
+# host, port 80/443 already taken by it) so that Caddy can reverse_proxy
+# to this container by name and terminate real HTTPS via its own
+# automatic-HTTPS/Let's Encrypt setup, instead of us running a second
+# Caddy that would collide on ports.
+#
+# Usage (server only):
+#   docker compose -f infra/docker-compose.yml -f infra/docker-compose.server.yml --env-file .env up -d
+#
+# The external network name is specific to THIS host's sec-check-bot
+# deployment (seccheckdev_sec-check-net) — adjust if that project is ever
+# renamed, or drop this overlay entirely once this project gets its own
+# domain-fronting Caddy instead of piggybacking on another project's.
+services:
+  webapp:
+    networks:
+      - apexride-net
+      - sec-check-net
+
+networks:
+  sec-check-net:
+    external: true
+    name: seccheckdev_sec-check-net
