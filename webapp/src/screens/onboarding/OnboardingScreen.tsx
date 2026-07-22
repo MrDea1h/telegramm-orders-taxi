@@ -9,6 +9,12 @@ import { useAppStore } from '../../store/appStore'
 type Stage = 'slides' | 'authChoice' | 'emailForm' | 'code' | 'pending' | 'blocked'
 type FormMode = 'register' | 'login'
 
+// Mirrors TelegramLoginButton's own gating — no bot username configured
+// yet means that button renders nothing, so the surrounding "choose
+// between two options" chrome (divider, subtitle copy) has to adapt too,
+// rather than presenting a broken-looking single-option choice screen.
+const hasTelegramLogin = !!import.meta.env.VITE_TELEGRAM_BOT_USERNAME
+
 const slides = [
   {
     icon: (
@@ -207,21 +213,26 @@ export function OnboardingScreen() {
           >
             <h2 className="text-center text-[20px] font-semibold text-[var(--tg-text)]">Вход в ApexRide</h2>
             <p className="mb-2 text-center text-[13px] text-[var(--tg-text-secondary)]">
-              Выберите способ входа — оба ведут в один и тот же аккаунт.
+              {hasTelegramLogin
+                ? 'Выберите способ входа — оба ведут в один и тот же аккаунт.'
+                : 'Войдите с рабочей почтой, чтобы продолжить.'}
             </p>
 
-            <TelegramLoginButton />
-
-            <div className="flex items-center gap-3 text-[12px] text-[var(--tg-text-secondary)]">
-              <div className="h-px flex-1 bg-[var(--tg-border)]" />
-              или
-              <div className="h-px flex-1 bg-[var(--tg-border)]" />
-            </div>
+            {hasTelegramLogin && (
+              <>
+                <TelegramLoginButton />
+                <div className="flex items-center gap-3 text-[12px] text-[var(--tg-text-secondary)]">
+                  <div className="h-px flex-1 bg-[var(--tg-border)]" />
+                  или
+                  <div className="h-px flex-1 bg-[var(--tg-border)]" />
+                </div>
+              </>
+            )}
 
             <Button
               full
               size="lg"
-              variant="secondary"
+              variant={hasTelegramLogin ? 'secondary' : 'primary'}
               onClick={() => {
                 setMode('register')
                 setStage('emailForm')
