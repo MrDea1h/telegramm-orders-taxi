@@ -1,0 +1,80 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+@theme {
+  --font-sans: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --color-primary: #7c3aed;
+  --color-primary-soft: #ede9fe;
+  --color-secondary: #3b82f6;
+  --color-bg: #ffffff;
+  --color-bg-dark: #0f0f1a;
+  --color-surface: #f5f3ff;
+  --color-surface-dark: #1c1b2e;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+
+  --shadow-soft: 0 8px 24px -8px rgba(124, 58, 237, 0.18);
+  --shadow-card: 0 2px 12px -2px rgba(15, 15, 26, 0.08);
+}
+
+:root {
+  color-scheme: light;
+  --tg-bg: var(--color-bg);
+  --tg-surface: var(--color-surface);
+  --tg-text: #0f0f1a;
+  --tg-text-secondary: #6b6376;
+  --tg-border: rgba(15, 15, 26, 0.08);
+  --tg-shadow: var(--shadow-card);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --tg-bg: var(--color-bg-dark);
+  --tg-surface: var(--color-surface-dark);
+  --tg-text: #f3f2f8;
+  --tg-text-secondary: #9a95a8;
+  --tg-border: rgba(255, 255, 255, 0.08);
+  --tg-shadow: 0 2px 16px -2px rgba(0, 0, 0, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: #e9e7ef;
+  color: var(--tg-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme='dark'] body {
+  background: #08070d;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
