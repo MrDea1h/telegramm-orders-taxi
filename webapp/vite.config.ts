@@ -9,6 +9,12 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // Registration is done manually in main.tsx (via the virtual:pwa-register
+      // module) so a new deploy can force an immediate reload instead of
+      // silently sitting in the background — during active development a
+      // returning visitor would otherwise keep seeing a stale cached build
+      // until they happened to reload twice or clear site data.
+      injectRegister: null,
       // Web Push subscription wiring lands in M4 once the backend endpoint
       // exists — this only makes the app installable/offline-capable.
       manifest: {
