@@ -193,6 +193,10 @@ export function OnboardingScreen() {
                 {loginError && (
                   <p className="text-center text-[13px] text-danger">{loginError}</p>
                 )}
+                <p className="mt-1 text-center text-[11px] text-[var(--tg-text-secondary)]">
+                  Не тот аккаунт? Telegram запоминает последний вход в этом браузере — откройте
+                  страницу в приватном окне, чтобы войти под другим аккаунтом.
+                </p>
               </>
             ) : (
               <p className="text-center text-[13px] text-danger">
