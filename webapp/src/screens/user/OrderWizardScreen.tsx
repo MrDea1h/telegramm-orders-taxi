@@ -28,7 +28,17 @@ function colorForId(id: string): string {
 }
 
 function toDateInputValue(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  // Local calendar day, not toISOString()'s UTC day — the whole strip
+  // above (weekday labels, day numbers, the weekend filter) is built from
+  // this Date's local fields, so the value sent to the backend must agree
+  // with what's on screen. Using toISOString() here used to desync the
+  // two for part of the day in any timezone ahead of UTC (e.g. Moscow,
+  // 00:00-02:59 local was still "yesterday" in UTC) — a button visibly
+  // labeled today's date would silently query yesterday's slots instead.
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 // Hard rule, not a UI nicety — the backend rejects weekend bookings
