@@ -93,6 +93,6 @@ def test_eta_uses_real_routing_when_ors_call_succeeds(client, monkeypatch):
     body = r.json()
     assert body["source"] == "real"
     assert body["is_estimated"] is False
-    # 900s * ORDER_ETA_BUFFER_FACTOR(1.2) / 60 = 18 minutes
-    assert body["duration_min"] == 18
+    # No margin factor on the real-route branch (see routing_api.py) — 900s / 60 = 15 minutes
+    assert body["duration_min"] == 15
     assert body["distance_km"] == 5.0

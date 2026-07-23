@@ -60,15 +60,22 @@ async def eta(body: EtaRequest, _user: User = Depends(require_verified)) -> EtaO
     ors_result = await ors_route_eta_seconds(from_lat, from_lon, to_lat, to_lon)
     if ors_result is not None:
         seconds, distance_meters = ors_result
-        duration_min = round(seconds / 60 * settings.ORDER_ETA_BUFFER_FACTOR)
+        # No margin factor here, deliberately: verified directly against a
+        # real route (Khimki -> central Moscow, free-flowing traffic) that
+        # ORS's own driving-car profile already runs slower than reality —
+        # 48 real minutes from ORS vs ~36 from Yandex Taxi for the same
+        # route (OSM's road-speed data for Russia is coarser than Yandex's
+        # own GPS-probe-calibrated model). Stacking a margin on top of an
+        # already-conservative estimate only widens that gap further.
+        duration_min = round(seconds / 60)
         distance_km = round(distance_meters / 1000, 1)
         return EtaOut(
             duration_min=duration_min, distance_km=distance_km, is_estimated=False, source="real"
         )
 
-    # Fallback formula, tz.md §4.3: avg 30 km/h, same margin factor as the
-    # real-route branch above, labeled as an estimate rather than a precise
-    # figure.
+    # Fallback formula, tz.md §4.3: avg 30 km/h with a margin — unlike the
+    # real-route branch above, this crude distance/speed guess genuinely
+    # benefits from one, since it has no routing data at all to lean on.
     distance_km = round(haversine_km(from_lat, from_lon, to_lat, to_lon), 1)
     duration_min = round(distance_km / 30 * 60 * settings.ORDER_ETA_BUFFER_FACTOR)
     return EtaOut(
