@@ -10,6 +10,7 @@ import { SuccessCheck } from '../../components/ui/SuccessCheck'
 import { Avatar } from '../../components/ui/Avatar'
 import { ApiError, routing, type Address } from '../../lib/api'
 import { computeRouteEta } from '../../lib/yandexMaps'
+import { MapAddressPicker } from '../../components/MapAddressPicker'
 import { useFavoriteAddresses, useRecentAddresses, useTouchAddress } from '../../hooks/useAddresses'
 import { useDrivers } from '../../hooks/useDrivers'
 import { useCreateOrder, useSlots } from '../../hooks/useOrders'
@@ -29,13 +30,13 @@ function toDateInputValue(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-function makeSyntheticAddress(addressText: string): Address {
+function makeSyntheticAddress(addressText: string, coords: [number, number] | null): Address {
   return {
     id: `custom-${addressText}`,
     label: null,
     address_text: addressText,
-    lat: null,
-    lon: null,
+    lat: coords?.[0] ?? null,
+    lon: coords?.[1] ?? null,
     is_favorite: false,
     last_used_at: null,
   }
@@ -51,6 +52,7 @@ export function OrderWizardScreen() {
   const [to, setTo] = useState<Address | null>(null)
   const [pickingFor, setPickingFor] = useState<'from' | 'to' | null>(null)
   const [addressQuery, setAddressQuery] = useState('')
+  const [pickedCoords, setPickedCoords] = useState<[number, number] | null>(null)
   const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()))
   const [slotTime, setSlotTime] = useState<string | null>(null)
   const [driverChoice, setDriverChoice] = useState<'any' | string>('any')
@@ -207,6 +209,7 @@ export function OrderWizardScreen() {
                 value={from}
                 onPick={() => {
                   setAddressQuery('')
+                  setPickedCoords(null)
                   setPickingFor('from')
                 }}
               />
@@ -215,6 +218,7 @@ export function OrderWizardScreen() {
                 value={to}
                 onPick={() => {
                   setAddressQuery('')
+                  setPickedCoords(null)
                   setPickingFor('to')
                 }}
               />
@@ -237,8 +241,8 @@ export function OrderWizardScreen() {
                       value={addressQuery}
                       onChange={(e) => setAddressQuery(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && addressQuery.trim()) {
-                          selectAddress(makeSyntheticAddress(addressQuery.trim()))
+                        if (e.key === 'Enter' && addressQuery.trim() && pickedCoords) {
+                          selectAddress(makeSyntheticAddress(addressQuery.trim(), pickedCoords))
                         }
                       }}
                       placeholder="Введите адрес или ориентир"
@@ -247,12 +251,21 @@ export function OrderWizardScreen() {
                   </div>
 
                   {addressQuery.trim() ? (
-                    <button
-                      onClick={() => selectAddress(makeSyntheticAddress(addressQuery.trim()))}
-                      className="flex items-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-left text-[13px] font-medium text-primary active:bg-primary/5"
-                    >
-                      Использовать «{addressQuery.trim()}»
-                    </button>
+                    <div className="flex flex-col gap-3">
+                      <p className="text-[12px] text-[var(--tg-text-secondary)]">
+                        Уточните точку на карте — так время в пути будет реальным, а не приблизительным.
+                      </p>
+                      <MapAddressPicker onChange={setPickedCoords} />
+                      <button
+                        disabled={!pickedCoords}
+                        onClick={() =>
+                          pickedCoords && selectAddress(makeSyntheticAddress(addressQuery.trim(), pickedCoords))
+                        }
+                        className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-center text-[13px] font-medium text-primary active:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Использовать «{addressQuery.trim()}»
+                      </button>
+                    </div>
                   ) : (
                     <>
                       <p className="mb-2 text-[12px] font-medium text-[var(--tg-text-secondary)]">Избранные адреса</p>
