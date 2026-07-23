@@ -14,7 +14,7 @@
  */
 
 const GEOCODER_ENDPOINT = 'https://geocode-maps.yandex.ru/1.x/'
-const REQUEST_TIMEOUT_MS = 5000
+const REQUEST_TIMEOUT_MS = 8000 // generous — mobile networks add real latency on top of Yandex's own response time
 
 function apiKey(): string | null {
   return import.meta.env.VITE_YANDEX_GEOCODER_API_KEY || null

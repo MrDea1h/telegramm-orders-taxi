@@ -159,7 +159,12 @@ export function OrderWizardScreen() {
     setMapResolvedLabel(null)
     const requestId = ++reverseGeocodeRequestId.current
     reverseGeocode(coords[0], coords[1]).then((label) => {
-      if (reverseGeocodeRequestId.current === requestId) setMapResolvedLabel(label)
+      if (reverseGeocodeRequestId.current !== requestId) return
+      setMapResolvedLabel(label)
+      // The whole point of showing this back to the user is so the picked
+      // point reads as a real address, not just a coordinate pair — put it
+      // where they're actually looking: the search field itself.
+      if (label) setAddressQuery(label)
     })
   }
 

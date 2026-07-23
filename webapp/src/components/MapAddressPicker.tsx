@@ -15,6 +15,9 @@ function PinIcon() {
   )
 }
 
+const MAP_LOAD_TIMEOUT_MS = 8000
+const GEOLOCATION_TIMEOUT_MS = 3000
+
 /**
  * "Drag the map, not the pin" picker — the marker is a fixed CSS overlay at
  * screen center, and the map itself pans underneath it; the picked point is
@@ -22,9 +25,16 @@ function PinIcon() {
  * Placemark (extra event wiring for no real benefit here) and is the same
  * pattern most ride-hailing apps use for this exact picker.
  *
- * There's no reverse-geocoding on this account's keys (see yandexMaps.ts) —
- * this component only ever produces coordinates, never an address label;
- * callers keep using the user's own typed text for the human-readable side.
+ * Reverse-geocoding the picked point into a real address label is the
+ * caller's job (see lib/yandexGeocoder.ts) — this component only ever
+ * produces coordinates.
+ *
+ * Two independent hard timeouts guard against hanging forever on flaky
+ * mobile WebViews: `getCurrentPosition`'s own `timeout` option isn't
+ * reliably honored everywhere, and `loadYandexMaps()` has no timeout of
+ * its own (computeRouteEta in yandexMaps.ts races its own copy of the same
+ * load for the same reason — script load or `ymaps.ready()` can just never
+ * settle on some devices/networks).
  */
 export function MapAddressPicker({ onChange }: { onChange: (coords: [number, number]) => void }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -41,9 +51,19 @@ export function MapAddressPicker({ onChange }: { onChange: (coords: [number, num
         setUnavailable(true)
         return
       }
-      ymapsPromise
+
+      const timeout = new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), MAP_LOAD_TIMEOUT_MS)
+      })
+
+      Promise.race([ymapsPromise, timeout])
         .then((ymaps) => {
           if (cancelled || !containerRef.current) return
+          if (!ymaps) {
+            console.warn('[MapAddressPicker] Yandex Maps JS API load timed out')
+            setUnavailable(true)
+            return
+          }
           const instance = new ymaps.Map(containerRef.current, {
             center,
             zoom: 16,
@@ -55,19 +75,32 @@ export function MapAddressPicker({ onChange }: { onChange: (coords: [number, num
           instance.events.add('actionend', emitCenter)
           emitCenter()
         })
-        .catch(() => {
+        .catch((error) => {
+          console.warn('[MapAddressPicker] failed to load Yandex Maps JS API', error)
           if (!cancelled) setUnavailable(true)
         })
     }
 
+    let geolocationSettled = false
+    function fallbackToDefault() {
+      if (geolocationSettled) return
+      geolocationSettled = true
+      init(DEFAULT_CENTER)
+    }
+
     if (navigator.geolocation) {
+      setTimeout(fallbackToDefault, GEOLOCATION_TIMEOUT_MS + 500)
       navigator.geolocation.getCurrentPosition(
-        (pos) => init([pos.coords.latitude, pos.coords.longitude]),
-        () => init(DEFAULT_CENTER),
-        { timeout: 3000 },
+        (pos) => {
+          if (geolocationSettled) return
+          geolocationSettled = true
+          init([pos.coords.latitude, pos.coords.longitude])
+        },
+        fallbackToDefault,
+        { timeout: GEOLOCATION_TIMEOUT_MS },
       )
     } else {
-      init(DEFAULT_CENTER)
+      fallbackToDefault()
     }
 
     return () => {

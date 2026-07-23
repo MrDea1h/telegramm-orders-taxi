@@ -55,7 +55,7 @@ async def eta(body: EtaRequest, _user: User = Depends(require_verified)) -> EtaO
     to_lat, to_lon = await _resolve(body.to_lat, body.to_lon, body.to_address)
 
     settings = get_settings()
-    distance_km = haversine_km(from_lat, from_lon, to_lat, to_lon)
+    distance_km = round(haversine_km(from_lat, from_lon, to_lat, to_lon), 1)
 
     seconds = await route_eta_seconds(from_lat, from_lon, to_lat, to_lon)
     if seconds is not None:
