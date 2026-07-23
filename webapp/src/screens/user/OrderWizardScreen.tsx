@@ -253,9 +253,15 @@ export function OrderWizardScreen() {
                   {addressQuery.trim() ? (
                     <div className="flex flex-col gap-3">
                       <p className="text-[12px] text-[var(--tg-text-secondary)]">
-                        Уточните точку на карте — так время в пути будет реальным, а не приблизительным.
+                        Передвиньте карту так, чтобы метка встала на нужную точку — координаты берутся именно
+                        отсюда, текст выше используется только как подпись.
                       </p>
                       <MapAddressPicker onChange={setPickedCoords} />
+                      <p className="text-center text-[12px] font-medium text-[var(--tg-text)]">
+                        {pickedCoords
+                          ? `📍 ${pickedCoords[0].toFixed(5)}, ${pickedCoords[1].toFixed(5)}`
+                          : 'Определяем координаты…'}
+                      </p>
                       <button
                         disabled={!pickedCoords}
                         onClick={() =>

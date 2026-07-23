@@ -7,6 +7,7 @@ import { Avatar } from '../../components/ui/Avatar'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { LogoutButton } from '../../components/LogoutButton'
 import { AdminViewSwitcher } from '../../components/AdminViewSwitcher'
+import { PullToRefresh } from '../../components/PullToRefresh'
 import { formatRelative, formatDateShort, formatTime } from '../../lib/format'
 import { useOrderHistory, useUpcomingOrder } from '../../hooks/useOrders'
 import { useAppStore } from '../../store/appStore'
@@ -29,8 +30,8 @@ export function HomeScreen() {
   const goTo = useAppStore((s) => s.goTo)
   const openOrder = useAppStore((s) => s.openOrder)
   const user = useAppStore((s) => s.user)
-  const { data: upcoming } = useUpcomingOrder()
-  const { data: history } = useOrderHistory()
+  const { data: upcoming, refetch: refetchUpcoming } = useUpcomingOrder()
+  const { data: history, refetch: refetchHistory } = useOrderHistory()
 
   const nextOrder = upcoming?.[0]
   const otherActiveOrders = upcoming?.slice(1) ?? []
@@ -39,7 +40,10 @@ export function HomeScreen() {
   const givenName = user?.full_name?.trim().split(/\s+/).slice(-1)[0]
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto pb-28">
+    <PullToRefresh
+      className="h-full pb-28"
+      onRefresh={() => Promise.all([refetchUpcoming(), refetchHistory()])}
+    >
       <div className="bg-gradient-to-br from-primary to-secondary px-5 pb-8 pt-6 text-white">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
@@ -194,6 +198,6 @@ export function HomeScreen() {
           )}
         </div>
       </div>
-    </div>
+    </PullToRefresh>
   )
 }

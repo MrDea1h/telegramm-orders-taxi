@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { TabStrip } from '../../components/ui/TabStrip'
 import { Card } from '../../components/ui/Card'
@@ -8,6 +8,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { LogoutButton } from '../../components/LogoutButton'
 import { AdminViewSwitcher } from '../../components/AdminViewSwitcher'
+import { PullToRefresh } from '../../components/PullToRefresh'
 import { formatRelative, formatDateShort, formatTime } from '../../lib/format'
 import { admin, ApiError, type AdminUser, type VerificationRequest } from '../../lib/api'
 import { useAdminOrders, useAssignOrder, useAdminCancelOrder } from '../../hooks/useOrders'
@@ -101,6 +102,7 @@ export function AdminScreen() {
     data: adminOrdersList,
     isLoading: adminOrdersLoading,
     error: adminOrdersError,
+    refetch: refetchAdminOrders,
   } = useAdminOrders({ status: statusFilter || undefined, driver_id: driverFilter || undefined })
   const { data: driverRoster } = useDrivers()
   const assignOrder = useAssignOrder()
@@ -120,19 +122,34 @@ export function AdminScreen() {
     setCancelReason('')
   }
 
-  useEffect(() => {
-    admin
+  const loadRequests = useCallback(() => {
+    return admin
       .listVerificationRequests()
       .then(setRequests)
       .catch((e: unknown) => setRequestsError(e instanceof ApiError ? e.message : 'Не удалось загрузить'))
   }, [])
 
-  useEffect(() => {
-    admin
+  const loadUsers = useCallback(() => {
+    return admin
       .listUsers()
       .then(setUsers)
       .catch((e: unknown) => setUsersError(e instanceof ApiError ? e.message : 'Не удалось загрузить'))
   }, [])
+
+  useEffect(() => {
+    loadRequests()
+  }, [loadRequests])
+
+  useEffect(() => {
+    loadUsers()
+  }, [loadUsers])
+
+  function handleRefresh() {
+    if (tab === 'requests') return loadRequests()
+    if (tab === 'users') return loadUsers()
+    if (tab === 'orders') return refetchAdminOrders()
+    return Promise.resolve()
+  }
 
   async function handleApprove(id: string) {
     haptics.notification('success')
@@ -183,7 +200,7 @@ export function AdminScreen() {
         ]}
       />
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <PullToRefresh className="flex-1 p-4" onRefresh={handleRefresh}>
         {tab === 'requests' &&
           (requests === null ? (
             requestsError ? (
@@ -493,7 +510,7 @@ export function AdminScreen() {
             <SettingRow label="Тайм-аут принятия заказа" value="10 мин" />
           </div>
         )}
-      </div>
+      </PullToRefresh>
     </div>
   )
 }

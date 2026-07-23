@@ -6,6 +6,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { LogoutButton } from '../../components/LogoutButton'
 import { AdminViewSwitcher } from '../../components/AdminViewSwitcher'
+import { PullToRefresh } from '../../components/PullToRefresh'
 import { formatTime } from '../../lib/format'
 import type { OrderStatus } from '../../data/types'
 import type { OrderTransitionAction } from '../../lib/api'
@@ -31,7 +32,7 @@ function QueueEmptyIcon() {
 }
 
 export function DriverTodayScreen() {
-  const { data: queue } = useDriverQueue()
+  const { data: queue, refetch: refetchQueue } = useDriverQueue()
   const { data: profile } = useMyDriverProfile()
   const setDuty = useSetDuty()
   const transition = useTransitionOrder()
@@ -92,7 +93,7 @@ export function DriverTodayScreen() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <PullToRefresh className="flex-1 px-4 py-4" onRefresh={() => refetchQueue()}>
         {queue && queue.length === 0 ? (
           <EmptyState icon={<QueueEmptyIcon />} title="Нет заказов" subtitle="Новые заказы появятся здесь" />
         ) : (
@@ -235,7 +236,7 @@ export function DriverTodayScreen() {
             })}
           </div>
         )}
-      </div>
+      </PullToRefresh>
     </div>
   )
 }

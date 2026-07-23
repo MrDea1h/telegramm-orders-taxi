@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { RouteMap } from '../../components/ui/RouteMap'
 import { StatusStepper } from '../../components/ui/StatusStepper'
 import { Avatar } from '../../components/ui/Avatar'
+import { PullToRefresh } from '../../components/PullToRefresh'
 import { formatDate, formatTime } from '../../lib/format'
 import { useCancelOrder, useOrderDetail, useRespondToCounter, useUpdateOrder } from '../../hooks/useOrders'
 import { useAppStore } from '../../store/appStore'
@@ -14,7 +15,7 @@ import { haptics } from '../../lib/haptics'
 export function OrderDetailScreen() {
   const closeOrder = useAppStore((s) => s.closeOrder)
   const selectedOrderId = useAppStore((s) => s.selectedOrderId)
-  const { data: order } = useOrderDetail(selectedOrderId)
+  const { data: order, refetch: refetchOrder } = useOrderDetail(selectedOrderId)
   const updateOrder = useUpdateOrder()
   const cancelOrder = useCancelOrder()
   const respondToCounter = useRespondToCounter()
@@ -67,7 +68,7 @@ export function OrderDetailScreen() {
     <div className="flex h-full flex-col bg-[var(--tg-bg)]">
       <TopBar title="Заказ" onBack={closeOrder} />
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <PullToRefresh className="flex-1 px-4 py-4" onRefresh={() => refetchOrder()}>
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4">
           <RouteMap />
 
@@ -219,7 +220,7 @@ export function OrderDetailScreen() {
             </Card>
           )}
         </motion.div>
-      </div>
+      </PullToRefresh>
 
       {canCancel && mode === 'view' && !isCountered && (
         <div className="flex gap-2 border-t border-[var(--tg-border)] p-4">
