@@ -35,16 +35,18 @@ export function HomeScreen() {
   return (
     <div className="flex h-full flex-col overflow-y-auto pb-28">
       <div className="bg-gradient-to-br from-primary to-secondary px-5 pb-8 pt-6 text-white">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
             <p className="text-[13px] text-white/80">Добрый день,</p>
-            <h1 className="text-[20px] font-semibold">{givenName ?? 'Коллега'}</h1>
+            <h1 className="truncate text-[20px] font-semibold">{givenName ?? 'Коллега'}</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <AdminViewSwitcher variant="light" />
+          <div className="flex shrink-0 items-center gap-2">
             <Avatar name={user?.full_name ?? '?'} color="rgba(255,255,255,0.25)" size={40} />
             <LogoutButton variant="light" />
           </div>
+        </div>
+        <div className="mt-3 flex justify-center">
+          <AdminViewSwitcher variant="light" />
         </div>
       </div>
 
@@ -89,7 +91,12 @@ export function HomeScreen() {
           </motion.div>
         )}
 
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          className={nextOrder ? undefined : 'mt-[16vh]'}
+        >
           <Button full size="lg" onClick={() => goTo('wizard')} className="text-[16px]">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
@@ -98,7 +105,7 @@ export function HomeScreen() {
           </Button>
         </motion.div>
 
-        <div>
+        <div className={nextOrder ? undefined : 'mt-[6vh]'}>
           <div className="mb-2 flex items-center justify-between px-1">
             <p className="text-[13px] font-medium text-[var(--tg-text-secondary)]">История поездок</p>
             {!!history?.length && (

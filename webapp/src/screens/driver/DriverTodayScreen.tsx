@@ -63,26 +63,32 @@ export function DriverTodayScreen() {
 
   return (
     <div className="flex h-full flex-col bg-[var(--tg-bg)]">
-      <div className="flex items-center justify-between border-b border-[var(--tg-border)] px-4 py-3">
-        <div>
-          <h1 className="text-[17px] font-semibold text-[var(--tg-text)]">Сегодня</h1>
-          <p className="text-[12px] text-[var(--tg-text-secondary)]">{queue?.length ?? 0} поездок в расписании</p>
+      <div className="border-b border-[var(--tg-border)] px-4 py-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h1 className="text-[17px] font-semibold text-[var(--tg-text)]">Сегодня</h1>
+            <p className="truncate text-[12px] text-[var(--tg-text-secondary)]">
+              {queue?.length ?? 0} поездок в расписании
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => {
+                haptics.selection()
+                setDuty.mutate(!available)
+              }}
+              className={`flex items-center gap-2 rounded-full px-3 py-2 text-[12px] font-medium transition-colors ${
+                available ? 'bg-success/10 text-success' : 'bg-[var(--tg-surface)] text-[var(--tg-text-secondary)]'
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full ${available ? 'bg-success' : 'bg-neutral-400'}`} />
+              {available ? 'На линии' : 'Недоступен'}
+            </button>
+            <LogoutButton />
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              haptics.selection()
-              setDuty.mutate(!available)
-            }}
-            className={`flex items-center gap-2 rounded-full px-3 py-2 text-[12px] font-medium transition-colors ${
-              available ? 'bg-success/10 text-success' : 'bg-[var(--tg-surface)] text-[var(--tg-text-secondary)]'
-            }`}
-          >
-            <span className={`h-2 w-2 rounded-full ${available ? 'bg-success' : 'bg-neutral-400'}`} />
-            {available ? 'На линии' : 'Недоступен'}
-          </button>
+        <div className="mt-2 flex justify-center">
           <AdminViewSwitcher />
-          <LogoutButton />
         </div>
       </div>
 

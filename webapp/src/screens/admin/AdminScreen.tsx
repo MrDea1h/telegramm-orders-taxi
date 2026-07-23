@@ -162,11 +162,13 @@ export function AdminScreen() {
 
   return (
     <div className="flex h-full flex-col bg-[var(--tg-bg)]">
-      <div className="flex items-center justify-between px-4 pb-1 pt-4">
-        <h1 className="text-[18px] font-semibold text-[var(--tg-text)]">Админ-панель</h1>
-        <div className="flex items-center gap-2">
-          <AdminViewSwitcher />
+      <div className="px-4 pb-1 pt-4">
+        <div className="flex items-center justify-between">
+          <h1 className="text-[18px] font-semibold text-[var(--tg-text)]">Админ-панель</h1>
           <LogoutButton />
+        </div>
+        <div className="mt-2 flex justify-center">
+          <AdminViewSwitcher />
         </div>
       </div>
       <TabStrip
