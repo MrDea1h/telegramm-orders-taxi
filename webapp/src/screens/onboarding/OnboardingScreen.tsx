@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button'
 import { TelegramLoginButton } from '../../components/TelegramLoginButton'
 import { haptics } from '../../lib/haptics'
 import { auth, ApiError } from '../../lib/api'
+import { formatPhoneInput, isPhoneComplete } from '../../lib/phone'
 import { useAppStore } from '../../store/appStore'
 
 const hasTelegramLogin = !!import.meta.env.VITE_TELEGRAM_BOT_USERNAME
@@ -117,7 +118,7 @@ export function OnboardingScreen() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="flex h-full flex-col justify-between px-6 py-10"
+            className="flex h-full flex-col justify-between px-6 pt-10 pb-[max(2.5rem,env(safe-area-inset-bottom))]"
           >
             <div className="flex justify-end">
               <button
@@ -236,9 +237,10 @@ export function OnboardingScreen() {
               />
               <input
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="Номер телефона"
+                onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                placeholder="+7 (___) ___-__-__"
                 type="tel"
+                inputMode="numeric"
                 className="h-12 w-full rounded-2xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-4 text-[15px] text-[var(--tg-text)] outline-none focus:border-primary"
               />
 
@@ -248,7 +250,7 @@ export function OnboardingScreen() {
                 full
                 size="lg"
                 className="mt-2"
-                disabled={!lastName.trim() || !firstName.trim() || !phone.trim() || busy}
+                disabled={!lastName.trim() || !firstName.trim() || !isPhoneComplete(phone) || busy}
                 onClick={handleProfileSubmit}
               >
                 Продолжить
