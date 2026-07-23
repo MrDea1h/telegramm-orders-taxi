@@ -102,13 +102,13 @@ export function DriverScheduleScreen() {
                     aria-label={`${label}: ${rows[i].enabled ? 'рабочий день' : 'выходной'}`}
                   >
                     <span
-                      className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                        rows[i].enabled ? 'translate-x-5' : 'translate-x-0.5'
+                      className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                        rows[i].enabled ? 'translate-x-5' : 'translate-x-0'
                       }`}
                     />
                   </button>
                 </div>
-                {rows[i].enabled && (
+                {rows[i].enabled ? (
                   <div className="mt-3 flex items-center gap-2">
                     <input
                       type="time"
@@ -123,6 +123,13 @@ export function DriverScheduleScreen() {
                       onChange={(e) => updateRow(i, { end: e.target.value })}
                       className="h-10 flex-1 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-2 text-[13px] text-[var(--tg-text)] outline-none focus:border-primary"
                     />
+                  </div>
+                ) : (
+                  // Keeps every row the same height regardless of enabled
+                  // state — a shorter card here broke the list's visual
+                  // rhythm against its taller enabled neighbors.
+                  <div className="mt-3 flex h-10 items-center">
+                    <span className="text-[13px] text-[var(--tg-text-secondary)]">Выходной</span>
                   </div>
                 )}
               </Card>

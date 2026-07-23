@@ -37,10 +37,15 @@ export function RouteMap({ compact = false }: { compact?: boolean }) {
         </defs>
       </svg>
 
-      <div className="absolute" style={{ left: '10%', bottom: '18%' }}>
+      {/* Positioned to exactly match the path's own M/end coordinates above
+          (30,110) and (270,30) in the 300x140 viewBox, as left/top % + a
+          centering transform — not bottom/right with an implicit corner
+          anchor, which left the dot/badge visibly offset from where the
+          line actually starts/ends. */}
+      <div className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: '10%', top: '78.57%' }}>
         <div className="h-3 w-3 rounded-full bg-primary ring-4 ring-primary/20" />
       </div>
-      <div className="absolute" style={{ right: '10%', top: '18%' }}>
+      <div className="absolute -translate-x-1/2 -translate-y-1/2" style={{ left: '90%', top: '21.43%' }}>
         <div className="flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-white shadow-md">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
             <path d="M12 2l7 19-7-4-7 4 7-19z" fill="currentColor" />

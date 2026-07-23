@@ -39,7 +39,14 @@ class Settings(BaseSettings):
 
     ORDER_BOOKING_HORIZON_DAYS: int = 14
     ORDER_MIN_LEAD_MIN: int = 30
-    ORDER_BUFFER_MIN: int = 15
+    # Flat gap enforced between a driver's consecutive bookings — a stopgap
+    # for the fact this doesn't (yet) account for real drive time from the
+    # previous ride's drop-off to the next pickup (would need an ORS call
+    # per candidate slot; deferred, see docs/context). Doubled from the
+    # original 15 for exactly that reason — see migration 0006, which keeps
+    # the DB's own order_busy_range() function (the real EXCLUDE-constraint
+    # source of truth) in sync with this advisory value.
+    ORDER_BUFFER_MIN: int = 30
     # Wall-clock basis for driver-schedule/slot math — DriverSchedule.weekday
     # and start_time/end_time are naive local-time values, this is how they
     # get anchored to real UTC instants.
