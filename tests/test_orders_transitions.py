@@ -4,9 +4,21 @@ import hashlib
 import hmac
 import time
 import uuid
+from zoneinfo import ZoneInfo
 
 BOT_TOKEN = "123456:test-bot-token"
 ADMIN_TELEGRAM_ID = 900401
+_COMPANY_TZ = ZoneInfo("Europe/Moscow")
+
+
+def _next_business_datetime(days: int) -> dt.datetime:
+    # Bookings are Monday-Friday only (api/app/orders_api.py's _is_weekend)
+    # — nudge forward until the offset lands on a weekday in COMPANY_TZ, so
+    # these fixtures stay valid no matter what day the suite runs on.
+    candidate = dt.datetime.now(dt.UTC) + dt.timedelta(days=days)
+    while candidate.astimezone(_COMPANY_TZ).weekday() >= 5:
+        candidate += dt.timedelta(days=1)
+    return candidate
 
 
 def _sign_login_widget(data: dict) -> dict:
@@ -103,7 +115,7 @@ def _make_driver(client, telegram_id: int) -> tuple[dict, str]:
 
 
 def _create_order(client, tokens: dict, driver_id: str | None = None) -> dict:
-    scheduled_at = (dt.datetime.now(dt.UTC) + dt.timedelta(days=2)).isoformat()
+    scheduled_at = _next_business_datetime(2).isoformat()
     body = {
         "idempotency_key": str(uuid.uuid4()),
         "from_address": "A",
@@ -228,7 +240,7 @@ def test_admin_can_accept_and_advance_an_order_as_driver(client):
 
 
 def _future_iso(days: int) -> str:
-    return (dt.datetime.now(dt.UTC) + dt.timedelta(days=days)).isoformat()
+    return _next_business_datetime(days).isoformat()
 
 
 def test_propose_time_requires_a_specific_driver(client):

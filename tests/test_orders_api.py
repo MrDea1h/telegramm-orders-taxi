@@ -4,9 +4,11 @@ import hashlib
 import hmac
 import time
 import uuid
+from zoneinfo import ZoneInfo
 
 BOT_TOKEN = "123456:test-bot-token"
 ADMIN_TELEGRAM_ID = 900301
+_COMPANY_TZ = ZoneInfo("Europe/Moscow")
 
 
 def _sign_login_widget(data: dict) -> dict:
@@ -95,7 +97,18 @@ def _make_driver(client, telegram_id: int) -> str:
 
 
 def _future_iso(days: int = 1, hours: int = 0) -> str:
-    return (dt.datetime.now(dt.UTC) + dt.timedelta(days=days, hours=hours)).isoformat()
+    # Bookings are Monday-Friday only (api/app/orders_api.py's _is_weekend)
+    # — nudge forward a day at a time until the requested offset lands on a
+    # weekday in COMPANY_TZ, so this fixture stays valid no matter what day
+    # the test suite happens to run on. Only for days >= 1: the days=0
+    # "right now" case is used to test the LEAD_TIME_TOO_SHORT rejection
+    # itself, which must fire regardless of weekday and must NOT be nudged
+    # forward into becoming an accidentally-valid time.
+    candidate = dt.datetime.now(dt.UTC) + dt.timedelta(days=days, hours=hours)
+    if days >= 1:
+        while candidate.astimezone(_COMPANY_TZ).weekday() >= 5:
+            candidate += dt.timedelta(days=1)
+    return candidate.isoformat()
 
 
 def _base_body(scheduled_at: str | None = None, **overrides) -> dict:

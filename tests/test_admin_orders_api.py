@@ -4,9 +4,11 @@ import hashlib
 import hmac
 import time
 import uuid
+from zoneinfo import ZoneInfo
 
 BOT_TOKEN = "123456:test-bot-token"
 ADMIN_TELEGRAM_ID = 900501
+_COMPANY_TZ = ZoneInfo("Europe/Moscow")
 
 
 def _sign_login_widget(data: dict) -> dict:
@@ -114,7 +116,13 @@ def _make_driver(client, telegram_id: int, admin_token: str) -> dict:
 
 
 def _create_order(client, tokens: dict, driver_id: str | None = None) -> dict:
-    scheduled_at = (dt.datetime.now(dt.UTC) + dt.timedelta(days=2)).isoformat()
+    # Bookings are Monday-Friday only (api/app/orders_api.py's _is_weekend)
+    # — nudge forward until this lands on a weekday in COMPANY_TZ, so this
+    # fixture stays valid no matter what day the suite happens to run on.
+    candidate = dt.datetime.now(dt.UTC) + dt.timedelta(days=2)
+    while candidate.astimezone(_COMPANY_TZ).weekday() >= 5:
+        candidate += dt.timedelta(days=1)
+    scheduled_at = candidate.isoformat()
     body = {
         "idempotency_key": str(uuid.uuid4()),
         "from_address": "A",
