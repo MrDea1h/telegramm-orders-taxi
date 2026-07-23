@@ -8,6 +8,7 @@ import { LogoutButton } from '../../components/LogoutButton'
 import { AdminViewSwitcher } from '../../components/AdminViewSwitcher'
 import { PullToRefresh } from '../../components/PullToRefresh'
 import { formatTime } from '../../lib/format'
+import { yandexNavigationUrl } from '../../lib/mapsLink'
 import type { OrderStatus } from '../../data/types'
 import type { OrderTransitionAction } from '../../lib/api'
 import { useDriverQueue, useTransitionOrder } from '../../hooks/useOrders'
@@ -120,8 +121,34 @@ export function DriverTodayScreen() {
                       </span>
                       <StatusBadge status={order.status} />
                     </div>
-                    <p className="text-[13px] text-[var(--tg-text)]">{order.from_address}</p>
-                    <p className="text-[12px] text-[var(--tg-text-secondary)]">→ {order.to_address}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[13px] text-[var(--tg-text)]">{order.from_address}</p>
+                      {order.from_lat != null && order.from_lon != null && (
+                        <a
+                          href={yandexNavigationUrl(order.from_lat, order.from_lon)}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="shrink-0 text-[11px] font-medium text-primary active:text-primary/70"
+                        >
+                          Маршрут →
+                        </a>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[12px] text-[var(--tg-text-secondary)]">→ {order.to_address}</p>
+                      {order.to_lat != null && order.to_lon != null && (
+                        <a
+                          href={yandexNavigationUrl(order.to_lat, order.to_lon)}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="shrink-0 text-[11px] font-medium text-primary active:text-primary/70"
+                        >
+                          Маршрут →
+                        </a>
+                      )}
+                    </div>
                     <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--tg-text-secondary)]">
                       <span>{order.passengers} пасс.</span>
                       {order.est_distance_km != null && (

@@ -54,10 +54,13 @@ export function OrderWizardScreen() {
   const [pickingFor, setPickingFor] = useState<'from' | 'to' | null>(null)
   const [addressQuery, setAddressQuery] = useState('')
   const [pickedCoords, setPickedCoords] = useState<[number, number] | null>(null)
-  // 'idle': haven't tried yet (or typing again after a failed attempt).
+  const [mapInitialCenter, setMapInitialCenter] = useState<[number, number] | null>(null)
+  // 'idle': haven't tried yet (or typing again after confirming/cancelling).
   // 'loading': geocoding the typed text right now.
-  // 'failed': geocoding came back empty — show the map as a manual fallback.
-  const [geocodeStatus, setGeocodeStatus] = useState<'idle' | 'loading' | 'failed'>('idle')
+  // 'refining': always shown after that, whether geocoding found the address
+  // or not — the map is the final step where the exact pickup/drop-off
+  // point gets pinned, not just a fallback for a failed lookup.
+  const [geocodeStatus, setGeocodeStatus] = useState<'idle' | 'loading' | 'refining'>('idle')
   const [mapResolvedLabel, setMapResolvedLabel] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()))
   const [slotTime, setSlotTime] = useState<string | null>(null)
@@ -115,6 +118,7 @@ export function OrderWizardScreen() {
     setPickingFor(null)
     setAddressQuery('')
     setPickedCoords(null)
+    setMapInitialCenter(null)
     setGeocodeStatus('idle')
     setMapResolvedLabel(null)
     touchAddress.mutate({
@@ -130,10 +134,18 @@ export function OrderWizardScreen() {
     setGeocodeStatus('loading')
     const result = await geocodeAddress(text)
     if (result) {
-      selectAddress(makeSyntheticAddress(text, result.coords))
+      setPickedCoords(result.coords)
+      setMapInitialCenter(result.coords)
+      setMapResolvedLabel(result.formattedAddress || text)
     } else {
-      setGeocodeStatus('failed')
+      setPickedCoords(null)
+      setMapInitialCenter(null)
+      setMapResolvedLabel(null)
     }
+    // Always land on the map for a final refinement tap, whether the
+    // address resolved automatically or not — see the geocodeStatus
+    // field's own comment for why.
+    setGeocodeStatus('refining')
   }
 
   function handleMapCoordsChange(coords: [number, number]) {
@@ -273,7 +285,7 @@ export function OrderWizardScreen() {
 
                   {addressQuery.trim() ? (
                     <div className="flex flex-col gap-3">
-                      {geocodeStatus !== 'failed' ? (
+                      {geocodeStatus !== 'refining' ? (
                         <button
                           disabled={geocodeStatus === 'loading'}
                           onClick={handleUseTypedAddress}
@@ -290,10 +302,18 @@ export function OrderWizardScreen() {
                         </button>
                       ) : (
                         <>
-                          <p className="text-[12px] text-danger">
-                            Не нашли такой адрес автоматически — уточните точку на карте.
+                          {!pickedCoords && !mapInitialCenter && (
+                            <p className="text-[12px] text-danger">
+                              Не нашли такой адрес автоматически — уточните точку на карте.
+                            </p>
+                          )}
+                          <p className="text-[12px] text-[var(--tg-text-secondary)]">
+                            Передвиньте карту так, чтобы метка встала на точное место подачи.
                           </p>
-                          <MapAddressPicker onChange={handleMapCoordsChange} />
+                          <MapAddressPicker
+                            initialCenter={mapInitialCenter ?? undefined}
+                            onChange={handleMapCoordsChange}
+                          />
                           <p className="text-center text-[12px] font-medium text-[var(--tg-text)]">
                             {mapResolvedLabel ??
                               (pickedCoords
@@ -310,7 +330,7 @@ export function OrderWizardScreen() {
                             }
                             className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-center text-[13px] font-medium text-primary active:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            Использовать эту точку
+                            Подтвердить точку
                           </button>
                         </>
                       )}

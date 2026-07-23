@@ -34,8 +34,18 @@ const GEOLOCATION_TIMEOUT_MS = 3000
  * reliably honored everywhere, and `loadYandexMaps()` has no timeout of
  * its own — script load or `ymaps.ready()` can just never settle on some
  * devices/networks, so this component races its own copy of the same load.
+ *
+ * `initialCenter`, when given (e.g. a just-geocoded address), skips
+ * geolocation entirely — centering on "where the user's phone physically
+ * is" would be wrong once we already know which address they're refining.
  */
-export function MapAddressPicker({ onChange }: { onChange: (coords: [number, number]) => void }) {
+export function MapAddressPicker({
+  onChange,
+  initialCenter,
+}: {
+  onChange: (coords: [number, number]) => void
+  initialCenter?: [number, number]
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [ready, setReady] = useState(false)
   const [unavailable, setUnavailable] = useState(false)
@@ -78,6 +88,14 @@ export function MapAddressPicker({ onChange }: { onChange: (coords: [number, num
           console.warn('[MapAddressPicker] failed to load Yandex Maps JS API', error)
           if (!cancelled) setUnavailable(true)
         })
+    }
+
+    if (initialCenter) {
+      init(initialCenter)
+      return () => {
+        cancelled = true
+        map?.destroy?.()
+      }
     }
 
     let geolocationSettled = false
