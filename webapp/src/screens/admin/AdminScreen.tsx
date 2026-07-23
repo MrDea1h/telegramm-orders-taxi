@@ -7,6 +7,7 @@ import { Avatar } from '../../components/ui/Avatar'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { LogoutButton } from '../../components/LogoutButton'
+import { AdminViewSwitcher } from '../../components/AdminViewSwitcher'
 import { formatRelative, formatDateShort, formatTime } from '../../lib/format'
 import { admin, ApiError, type AdminUser, type VerificationRequest } from '../../lib/api'
 import { useAdminOrders, useAssignOrder, useAdminCancelOrder } from '../../hooks/useOrders'
@@ -162,7 +163,10 @@ export function AdminScreen() {
     <div className="flex h-full flex-col bg-[var(--tg-bg)]">
       <div className="flex items-center justify-between px-4 pb-1 pt-4">
         <h1 className="text-[18px] font-semibold text-[var(--tg-text)]">Админ-панель</h1>
-        <LogoutButton />
+        <div className="flex items-center gap-2">
+          <AdminViewSwitcher />
+          <LogoutButton />
+        </div>
       </div>
       <TabStrip
         active={tab}

@@ -6,6 +6,7 @@ import { RouteMap } from '../../components/ui/RouteMap'
 import { Avatar } from '../../components/ui/Avatar'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { LogoutButton } from '../../components/LogoutButton'
+import { AdminViewSwitcher } from '../../components/AdminViewSwitcher'
 import { formatRelative, formatDateShort, formatTime } from '../../lib/format'
 import { useOrderHistory, useUpcomingOrder } from '../../hooks/useOrders'
 import { useAppStore } from '../../store/appStore'
@@ -40,6 +41,7 @@ export function HomeScreen() {
             <h1 className="text-[20px] font-semibold">{givenName ?? 'Коллега'}</h1>
           </div>
           <div className="flex items-center gap-2">
+            <AdminViewSwitcher variant="light" />
             <Avatar name={user?.full_name ?? '?'} color="rgba(255,255,255,0.25)" size={40} />
             <LogoutButton variant="light" />
           </div>

@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { LogoutButton } from '../../components/LogoutButton'
+import { AdminViewSwitcher } from '../../components/AdminViewSwitcher'
 import { formatTime } from '../../lib/format'
 import type { OrderStatus } from '../../data/types'
 import type { OrderTransitionAction } from '../../lib/api'
@@ -71,6 +72,7 @@ export function DriverTodayScreen() {
             <span className={`h-2 w-2 rounded-full ${available ? 'bg-success' : 'bg-neutral-400'}`} />
             {available ? 'На линии' : 'Недоступен'}
           </button>
+          <AdminViewSwitcher />
           <LogoutButton />
         </div>
       </div>

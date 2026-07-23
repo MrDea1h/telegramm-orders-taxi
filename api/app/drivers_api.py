@@ -13,6 +13,7 @@ from api.app.deps import require_role, require_verified
 from api.app.errors import AppError
 from shared.db.engine import get_session
 from shared.db.models import Driver, DriverSchedule, DriverTimeOff, User
+from shared.drivers import get_or_create_own_driver
 
 router = APIRouter(prefix="/v1/drivers", tags=["drivers"])
 
@@ -70,9 +71,7 @@ class SetDutyRequest(BaseModel):
 
 
 async def _own_driver(user: User, session: AsyncSession) -> Driver:
-    driver = (
-        await session.execute(select(Driver).where(Driver.user_id == user.id))
-    ).scalar_one_or_none()
+    driver = await get_or_create_own_driver(user, session)
     if driver is None:
         raise AppError(404, "NOT_FOUND", "No driver profile for this account")
     return driver
@@ -105,7 +104,7 @@ async def list_drivers(
 
 @router.get("/me", response_model=DriverOut)
 async def get_my_driver_profile(
-    user: User = Depends(require_role("driver")),
+    user: User = Depends(require_role("driver", "admin")),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     driver = await _own_driver(user, session)
@@ -122,7 +121,7 @@ async def get_my_driver_profile(
 
 @router.get("/me/schedule", response_model=list[ScheduleOut])
 async def get_my_schedule(
-    user: User = Depends(require_role("driver")),
+    user: User = Depends(require_role("driver", "admin")),
     session: AsyncSession = Depends(get_session),
 ) -> list[DriverSchedule]:
     driver = await _own_driver(user, session)
@@ -137,7 +136,7 @@ async def get_my_schedule(
 @router.put("/me/schedule", response_model=list[ScheduleOut])
 async def set_my_schedule(
     body: list[ScheduleWindow],
-    user: User = Depends(require_role("driver")),
+    user: User = Depends(require_role("driver", "admin")),
     session: AsyncSession = Depends(get_session),
 ) -> list[DriverSchedule]:
     driver = await _own_driver(user, session)
@@ -173,7 +172,7 @@ async def set_my_schedule(
 @router.post("/me/time-off", status_code=201, response_model=TimeOffOut)
 async def add_time_off(
     body: TimeOffRequest,
-    user: User = Depends(require_role("driver")),
+    user: User = Depends(require_role("driver", "admin")),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     driver = await _own_driver(user, session)
@@ -196,7 +195,7 @@ async def add_time_off(
 @router.delete("/me/time-off/{time_off_id}", status_code=204, response_model=None)
 async def delete_time_off(
     time_off_id: uuid.UUID,
-    user: User = Depends(require_role("driver")),
+    user: User = Depends(require_role("driver", "admin")),
     session: AsyncSession = Depends(get_session),
 ) -> None:
     driver = await _own_driver(user, session)
@@ -210,7 +209,7 @@ async def delete_time_off(
 @router.patch("/me/duty", response_model=dict)
 async def set_duty(
     body: SetDutyRequest,
-    user: User = Depends(require_role("driver")),
+    user: User = Depends(require_role("driver", "admin")),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     driver = await _own_driver(user, session)

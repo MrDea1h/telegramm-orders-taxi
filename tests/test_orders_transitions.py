@@ -199,3 +199,20 @@ def test_driver_cannot_transition_unassigned_order_of_another_driver(client):
     r = _transition(client, driver_b, order["id"], "depart")
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "INVALID_TRANSITION"
+
+
+def test_admin_can_accept_and_advance_an_order_as_driver(client):
+    # Admin is a superuser for every workflow, including driving — it should
+    # be able to walk the driver transition chain with no prior Driver row.
+    user_tokens = _verified_user(client, 1413)
+    admin_token = _admin_token(client)
+    admin_tokens = {"access_token": admin_token}
+    order = _create_order(client, user_tokens)  # "any driver" order
+
+    r = _transition(client, admin_tokens, order["id"], "accept")
+    assert r.status_code == 200
+    assert r.json()["status"] == "confirmed"
+
+    r = _transition(client, admin_tokens, order["id"], "depart")
+    assert r.status_code == 200
+    assert r.json()["status"] == "driver_en_route"

@@ -17,6 +17,7 @@ from api.app.errors import AppError
 from shared.config import get_settings
 from shared.db.engine import get_session
 from shared.db.models import Address, Driver, DriverSchedule, DriverTimeOff, Order, OrderEvent, User
+from shared.drivers import get_or_create_own_driver
 from shared.slots import compute_slots
 
 router = APIRouter(prefix="/v1/orders", tags=["orders"])
@@ -279,12 +280,10 @@ async def get_slots(
 
 @router.get("/queue", response_model=list[OrderOut])
 async def get_queue(
-    user: User = Depends(require_role("driver")),
+    user: User = Depends(require_role("driver", "admin")),
     session: AsyncSession = Depends(get_session),
 ) -> list[OrderOut]:
-    driver = (
-        await session.execute(select(Driver).where(Driver.user_id == user.id))
-    ).scalar_one_or_none()
+    driver = await get_or_create_own_driver(user, session)
     if driver is None:
         raise AppError(404, "NOT_FOUND", "No driver profile for this account")
 
@@ -494,12 +493,10 @@ async def cancel_order(
 async def transition_order(
     order_id: uuid.UUID,
     body: TransitionRequest,
-    user: User = Depends(require_role("driver")),
+    user: User = Depends(require_role("driver", "admin")),
     session: AsyncSession = Depends(get_session),
 ) -> OrderOut:
-    driver = (
-        await session.execute(select(Driver).where(Driver.user_id == user.id))
-    ).scalar_one_or_none()
+    driver = await get_or_create_own_driver(user, session)
     if driver is None:
         raise AppError(404, "NOT_FOUND", "No driver profile for this account")
 

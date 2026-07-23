@@ -134,3 +134,18 @@ def test_non_driver_gets_403(client):
     r = client.get("/v1/drivers/me/schedule", headers=_auth_header(tokens))
     assert r.status_code == 403
     assert r.json()["error"]["code"] == "FORBIDDEN"
+
+
+def test_admin_can_use_driver_endpoints_without_a_prior_driver_row(client):
+    admin_token = _admin_token(client)
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # Admin has no Driver row yet — driver-only endpoints auto-provision one
+    # rather than 404ing, since admin is a superuser for every workflow.
+    r = client.get("/v1/drivers/me/schedule", headers=headers)
+    assert r.status_code == 200
+    assert r.json() == []
+
+    r = client.get("/v1/drivers/me", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["on_duty"] is True

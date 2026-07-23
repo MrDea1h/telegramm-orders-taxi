@@ -9,12 +9,18 @@ export type AdminScreen = 'admin'
 
 interface AppState {
   role: Role
+  // Admin accounts are treated as superusers with access to every workflow
+  // (see the M3 follow-up decision) — this is purely a local UI toggle for
+  // which screen set an admin currently sees; the real `role` never changes,
+  // so backend authorization is untouched by it.
+  adminViewAs: Role
   userScreen: UserScreen
   driverScreen: DriverScreen
   adminScreen: AdminScreen
   selectedOrderId: string | null
   showOnboarding: boolean
   setRole: (role: Role) => void
+  setAdminViewAs: (view: Role) => void
   goTo: (screen: UserScreen) => void
   openOrder: (id: string) => void
   closeOrder: () => void
@@ -35,12 +41,14 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   role: 'user',
+  adminViewAs: 'admin',
   userScreen: 'home',
   driverScreen: 'today',
   adminScreen: 'admin',
   selectedOrderId: null,
   showOnboarding: false,
   setRole: (role) => set({ role }),
+  setAdminViewAs: (view) => set({ adminViewAs: view }),
   goTo: (screen) => set({ userScreen: screen }),
   openOrder: (id) => set({ selectedOrderId: id, userScreen: 'orderDetail' }),
   closeOrder: () => set({ selectedOrderId: null, userScreen: 'home' }),
@@ -55,12 +63,12 @@ export const useAppStore = create<AppState>((set) => ({
     // always tracks the real authenticated user's role. DevToolbar (dev
     // build only) can still override it locally afterwards, purely for
     // previewing other roles' screens without needing separate accounts.
-    set({ accessToken: tokens.access_token, user, role: user.role, authReady: true })
+    set({ accessToken: tokens.access_token, user, role: user.role, adminViewAs: 'admin', authReady: true })
   },
   setUser: (user) => set({ user, role: user.role }),
   clearAuth: () => {
     localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY)
-    set({ accessToken: null, user: null, authReady: true })
+    set({ accessToken: null, user: null, adminViewAs: 'admin', authReady: true })
   },
   setAuthReady: (v) => set({ authReady: v }),
 }))

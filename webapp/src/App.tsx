@@ -12,7 +12,7 @@ import { DriverTodayScreen } from './screens/driver/DriverTodayScreen'
 import { AdminScreen } from './screens/admin/AdminScreen'
 
 function Screens() {
-  const { role, userScreen, showOnboarding, authReady, accessToken, user } = useAppStore()
+  const { role, adminViewAs, userScreen, showOnboarding, authReady, accessToken, user } = useAppStore()
   const isAuthenticated = !!accessToken && !!user
   // Telegram login alone isn't enough to reach the real app: the profile
   // step (full name + phone, asked explicitly rather than trusting
@@ -37,7 +37,11 @@ function Screens() {
     )
   }
 
-  const key = role === 'user' ? userScreen : role
+  // Admin is a superuser — `adminViewAs` (an AdminViewSwitcher-controlled
+  // local toggle, see appStore.ts) picks which screen set they currently
+  // see; every other role always sees its own single screen set.
+  const effectiveRole = role === 'admin' ? adminViewAs : role
+  const key = effectiveRole === 'user' ? userScreen : effectiveRole
 
   return (
     <AnimatePresence mode="wait">
@@ -49,11 +53,11 @@ function Screens() {
         transition={{ duration: 0.22, ease: 'easeOut' }}
         className="h-full"
       >
-        {role === 'driver' && <DriverTodayScreen />}
-        {role === 'admin' && <AdminScreen />}
-        {role === 'user' && userScreen === 'home' && <HomeScreen />}
-        {role === 'user' && userScreen === 'wizard' && <OrderWizardScreen />}
-        {role === 'user' && userScreen === 'orderDetail' && <OrderDetailScreen />}
+        {effectiveRole === 'driver' && <DriverTodayScreen />}
+        {effectiveRole === 'admin' && <AdminScreen />}
+        {effectiveRole === 'user' && userScreen === 'home' && <HomeScreen />}
+        {effectiveRole === 'user' && userScreen === 'wizard' && <OrderWizardScreen />}
+        {effectiveRole === 'user' && userScreen === 'orderDetail' && <OrderDetailScreen />}
       </motion.div>
     </AnimatePresence>
   )
