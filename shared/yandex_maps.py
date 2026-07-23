@@ -1,13 +1,13 @@
-"""Yandex Geocoder + routing client, with a haversine fallback that requires
-no API key at all. Every public function returns None on any failure
-(missing key, timeout, bad response) rather than raising — callers treat
-that uniformly as "couldn't resolve this via Yandex", never as a request
-failure of their own.
+"""Yandex Geocoder client, plus a haversine fallback that requires no API
+key at all. geocode() returns None on any failure (missing key, timeout,
+bad response) rather than raising — callers treat that uniformly as
+"couldn't resolve this via Yandex", never as a request failure of their own.
 
-NOTE: the exact Yandex Geocoder/Matrix Router request/response shapes below
-were not verified against a live account at the time this was written —
-re-check them against Yandex's current docs before relying on this in
-production; API surfaces and pricing tiers do shift over time.
+Real driving-route distance/duration comes from shared/openrouteservice.py,
+not Yandex — this account's tier doesn't include Yandex's routing/distance-
+matrix product (confirmed: api.routing.yandex.net/v2/route returns a plain
+403). Geocoding is a separate product this account does have, verified
+directly against a live key.
 """
 
 from __future__ import annotations
@@ -90,41 +90,3 @@ async def _geocode_request(address_text: str, api_key: str) -> tuple[float, floa
     pos = members[0]["GeoObject"]["Point"]["pos"]  # Yandex returns "lon lat"
     lon_str, lat_str = pos.split(" ")
     return float(lat_str), float(lon_str)
-
-
-async def route_eta_seconds(
-    from_lat: float, from_lon: float, to_lat: float, to_lon: float
-) -> float | None:
-    """Real driving duration in seconds via Yandex routing, or None if the
-    key is unset or the call fails — caller falls back to a haversine
-    estimate rather than ever surfacing this as a hard error."""
-    settings = get_settings()
-    if not settings.YANDEX_API_KEY:
-        return None
-
-    try:
-        return await _route_eta_request(from_lat, from_lon, to_lat, to_lon, settings.YANDEX_API_KEY)
-    except Exception:
-        logger.warning(
-            "yandex routing failed for (%s,%s)->(%s,%s)",
-            from_lat,
-            from_lon,
-            to_lat,
-            to_lon,
-            exc_info=True,
-        )
-        return None
-
-
-@retry(stop=stop_after_attempt(2), wait=wait_fixed(0.5), reraise=True)
-async def _route_eta_request(
-    from_lat: float, from_lon: float, to_lat: float, to_lon: float, api_key: str
-) -> float:
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-        response = await client.get(
-            "https://api.routing.yandex.net/v2/route",
-            params={"apikey": api_key, "waypoints": f"{from_lat},{from_lon}|{to_lat},{to_lon}"},
-        )
-        response.raise_for_status()
-        data = response.json()
-    return float(data["route"]["legs"][0]["duration"]["value"])

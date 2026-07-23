@@ -284,7 +284,7 @@ export interface EtaResult {
   duration_min: number
   distance_km: number
   is_estimated: boolean
-  source: 'yandex' | 'fallback'
+  source: 'real' | 'fallback'
 }
 
 export const routing = {

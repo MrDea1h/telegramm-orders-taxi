@@ -44,8 +44,8 @@ def _verified_headers(client, telegram_id: int) -> dict:
     return {"Authorization": f"Bearer {tokens['access_token']}"}
 
 
-def test_eta_falls_back_to_haversine_without_yandex_key(client):
-    # YANDEX_API_KEY is unset in the test environment by default.
+def test_eta_falls_back_to_haversine_without_ors_key(client):
+    # ORS_API_KEY is unset in the test environment by default.
     headers = _verified_headers(client, 1201)
     r = client.post(
         "/v1/routing/eta",
@@ -77,11 +77,11 @@ def test_eta_missing_endpoint_is_422_validation_error(client):
     assert r.status_code == 422
 
 
-def test_eta_uses_yandex_when_routing_call_succeeds(client, monkeypatch):
+def test_eta_uses_real_routing_when_ors_call_succeeds(client, monkeypatch):
     async def fake_route_eta_seconds(from_lat, from_lon, to_lat, to_lon):
-        return 900.0  # 15 real minutes
+        return 900.0, 5000.0  # 15 real minutes, 5 real km
 
-    monkeypatch.setattr("api.app.routing_api.route_eta_seconds", fake_route_eta_seconds)
+    monkeypatch.setattr("api.app.routing_api.ors_route_eta_seconds", fake_route_eta_seconds)
 
     headers = _verified_headers(client, 1204)
     r = client.post(
@@ -91,7 +91,8 @@ def test_eta_uses_yandex_when_routing_call_succeeds(client, monkeypatch):
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["source"] == "yandex"
+    assert body["source"] == "real"
     assert body["is_estimated"] is False
     # 900s * ORDER_ETA_BUFFER_FACTOR(1.2) / 60 = 18 minutes
     assert body["duration_min"] == 18
+    assert body["distance_km"] == 5.0

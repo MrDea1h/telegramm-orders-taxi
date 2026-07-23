@@ -46,8 +46,15 @@ class Settings(BaseSettings):
     COMPANY_TZ: str = "Europe/Moscow"
     # Empty = routing/eta.py falls back to a haversine-distance estimate
     # instead of calling Yandex — lets the order wizard work in dev/CI with
-    # zero external credentials.
+    # zero external credentials. Only used for geocoding now (Yandex's
+    # routing/distance-matrix product isn't part of this account's tier —
+    # confirmed via a direct 403 against api.routing.yandex.net).
     YANDEX_API_KEY: str = ""
+    # Real driving-route distance/duration — OpenRouteService (OSM-based),
+    # chosen specifically because it's free and Yandex's own routing product
+    # isn't available on this account. Empty = haversine fallback, same
+    # graceful-degradation contract as YANDEX_API_KEY above.
+    ORS_API_KEY: str = ""
     ORDER_ETA_BUFFER_FACTOR: float = 1.2
     ORDER_SLOT_STEP_MIN: int = 30
     # Audit-only threshold: OrderEvent payloads record whether a cancel fell

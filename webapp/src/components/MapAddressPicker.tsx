@@ -32,9 +32,8 @@ const GEOLOCATION_TIMEOUT_MS = 3000
  * Two independent hard timeouts guard against hanging forever on flaky
  * mobile WebViews: `getCurrentPosition`'s own `timeout` option isn't
  * reliably honored everywhere, and `loadYandexMaps()` has no timeout of
- * its own (computeRouteEta in yandexMaps.ts races its own copy of the same
- * load for the same reason — script load or `ymaps.ready()` can just never
- * settle on some devices/networks).
+ * its own — script load or `ymaps.ready()` can just never settle on some
+ * devices/networks, so this component races its own copy of the same load.
  */
 export function MapAddressPicker({ onChange }: { onChange: (coords: [number, number]) => void }) {
   const containerRef = useRef<HTMLDivElement>(null)
