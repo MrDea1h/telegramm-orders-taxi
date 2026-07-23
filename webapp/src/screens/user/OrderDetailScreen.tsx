@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { TopBar } from '../../components/ui/TopBar'
 import { Card } from '../../components/ui/Card'
@@ -6,17 +7,53 @@ import { RouteMap } from '../../components/ui/RouteMap'
 import { StatusStepper } from '../../components/ui/StatusStepper'
 import { Avatar } from '../../components/ui/Avatar'
 import { formatDate, formatTime } from '../../lib/format'
-import { drivers, orderHistory, upcomingOrder } from '../../data/mock'
+import { useCancelOrder, useOrderDetail, useUpdateOrder } from '../../hooks/useOrders'
 import { useAppStore } from '../../store/appStore'
+import { haptics } from '../../lib/haptics'
 
 export function OrderDetailScreen() {
   const closeOrder = useAppStore((s) => s.closeOrder)
   const selectedOrderId = useAppStore((s) => s.selectedOrderId)
+  const { data: order } = useOrderDetail(selectedOrderId)
+  const updateOrder = useUpdateOrder()
+  const cancelOrder = useCancelOrder()
 
-  const order = [upcomingOrder, ...orderHistory].find((o) => o.id === selectedOrderId) ?? upcomingOrder
-  const driver = drivers.find((d) => d.id === order.driverId)
-  const canModify = order.status === 'pending_driver' || order.status === 'confirmed'
+  const [mode, setMode] = useState<'view' | 'edit' | 'cancel'>('view')
+  const [comment, setComment] = useState('')
+  const [passengers, setPassengers] = useState(1)
+  const [cancelReason, setCancelReason] = useState('')
+
+  if (!order) {
+    return (
+      <div className="flex h-full flex-col bg-[var(--tg-bg)]">
+        <TopBar title="Заказ" onBack={closeOrder} />
+        <div className="flex flex-1 items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      </div>
+    )
+  }
+
+  const canModify = order.status === 'draft' || order.status === 'pending_driver' || order.status === 'confirmed'
   const canCancel = canModify || order.status === 'driver_en_route'
+
+  function startEdit() {
+    setComment(order!.comment ?? '')
+    setPassengers(order!.passengers)
+    setMode('edit')
+  }
+
+  async function saveEdit() {
+    await updateOrder.mutateAsync({ id: order!.id, input: { comment, passengers } })
+    haptics.notification('success')
+    setMode('view')
+  }
+
+  async function confirmCancel() {
+    await cancelOrder.mutateAsync({ id: order!.id, reason: cancelReason || undefined })
+    haptics.notification('success')
+    closeOrder()
+  }
 
   return (
     <div className="flex h-full flex-col bg-[var(--tg-bg)]">
@@ -38,24 +75,32 @@ export function OrderDetailScreen() {
                 <span className="h-2 w-2 rounded-full bg-secondary" />
               </div>
               <div className="flex-1">
-                <p className="text-[14px] font-medium text-[var(--tg-text)]">{order.from.addressText}</p>
-                <p className="mt-3 text-[14px] font-medium text-[var(--tg-text)]">{order.to.addressText}</p>
+                <p className="text-[14px] font-medium text-[var(--tg-text)]">{order.from_address}</p>
+                <p className="mt-3 text-[14px] font-medium text-[var(--tg-text)]">{order.to_address}</p>
               </div>
             </div>
             <div className="flex items-center justify-between border-t border-[var(--tg-border)] pt-3 text-[13px] text-[var(--tg-text-secondary)]">
-              <span>{formatDate(order.scheduledAt)}, {formatTime(order.scheduledAt)}</span>
-              <span>≈ {order.etaMin} мин · {order.distanceKm} км</span>
+              <span>
+                {formatDate(order.scheduled_at)}, {formatTime(order.scheduled_at)}
+              </span>
+              {order.est_distance_km != null && (
+                <span>
+                  ≈ {order.est_duration_min} мин · {order.est_distance_km} км
+                </span>
+              )}
             </div>
           </Card>
 
-          {driver && (
+          {order.driver_full_name && (
             <Card className="flex items-center gap-3 p-4">
-              <Avatar name={driver.fullName} color={driver.avatarColor} size={44} />
+              <Avatar name={order.driver_full_name} color="#3B82F6" size={44} />
               <div className="flex-1">
-                <p className="text-[14px] font-medium text-[var(--tg-text)]">{driver.fullName}</p>
-                <p className="text-[12px] text-[var(--tg-text-secondary)]">
-                  {driver.car.model} · {driver.car.color} · {driver.car.plate}
-                </p>
+                <p className="text-[14px] font-medium text-[var(--tg-text)]">{order.driver_full_name}</p>
+                {order.driver_car_model && (
+                  <p className="text-[12px] text-[var(--tg-text-secondary)]">
+                    {order.driver_car_model} · {order.driver_car_color} · {order.driver_car_plate}
+                  </p>
+                )}
               </div>
               <a
                 href="https://yandex.ru/maps"
@@ -65,29 +110,93 @@ export function OrderDetailScreen() {
                 aria-label="Открыть маршрут"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                  <path d="M9 18l-6-4V4l6 4m0 10l6-4m-6 4V8m6 6l6 4V8l-6-4m0 10V4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  <path
+                    d="M9 18l-6-4V4l6 4m0 10l6-4m-6 4V8m6 6l6 4V8l-6-4m0 10V4"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </a>
             </Card>
           )}
 
-          {order.comment && (
-            <Card className="p-4">
-              <p className="text-[12px] font-medium text-[var(--tg-text-secondary)]">Комментарий</p>
-              <p className="mt-1 text-[13px] text-[var(--tg-text)]">{order.comment}</p>
+          {mode === 'edit' ? (
+            <Card className="flex flex-col gap-3 p-4">
+              <p className="text-[12px] font-medium text-[var(--tg-text-secondary)]">Пассажиры</p>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="secondary"
+                  className="!h-9 !w-9 !px-0"
+                  onClick={() => setPassengers((p) => Math.max(1, p - 1))}
+                >
+                  −
+                </Button>
+                <span className="text-[15px] font-medium text-[var(--tg-text)]">{passengers}</span>
+                <Button
+                  variant="secondary"
+                  className="!h-9 !w-9 !px-0"
+                  onClick={() => setPassengers((p) => Math.min(4, p + 1))}
+                >
+                  +
+                </Button>
+              </div>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Комментарий водителю"
+                rows={2}
+                className="w-full rounded-2xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-3 py-2 text-[14px] text-[var(--tg-text)] outline-none focus:border-primary"
+              />
+              <div className="flex gap-2">
+                <Button variant="secondary" full onClick={() => setMode('view')}>
+                  Отмена
+                </Button>
+                <Button full onClick={saveEdit} disabled={updateOrder.isPending}>
+                  Сохранить
+                </Button>
+              </div>
+            </Card>
+          ) : (
+            order.comment && (
+              <Card className="p-4">
+                <p className="text-[12px] font-medium text-[var(--tg-text-secondary)]">Комментарий</p>
+                <p className="mt-1 text-[13px] text-[var(--tg-text)]">{order.comment}</p>
+              </Card>
+            )
+          )}
+
+          {mode === 'cancel' && (
+            <Card className="flex flex-col gap-3 p-4">
+              <p className="text-[12px] font-medium text-[var(--tg-text-secondary)]">Причина отмены (необязательно)</p>
+              <input
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Причина"
+                className="h-11 w-full rounded-2xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-3 text-[14px] text-[var(--tg-text)] outline-none focus:border-primary"
+              />
+              <div className="flex gap-2">
+                <Button variant="secondary" full onClick={() => setMode('view')}>
+                  Назад
+                </Button>
+                <Button variant="danger" full onClick={confirmCancel} disabled={cancelOrder.isPending}>
+                  Подтвердить отмену
+                </Button>
+              </div>
             </Card>
           )}
         </motion.div>
       </div>
 
-      {canCancel && (
+      {canCancel && mode === 'view' && (
         <div className="flex gap-2 border-t border-[var(--tg-border)] p-4">
           {canModify && (
-            <Button variant="secondary" full onClick={closeOrder}>
+            <Button variant="secondary" full onClick={startEdit}>
               Изменить
             </Button>
           )}
-          <Button variant="danger" full onClick={closeOrder}>
+          <Button variant="danger" full onClick={() => setMode('cancel')}>
             Отменить
           </Button>
         </div>

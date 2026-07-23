@@ -40,6 +40,19 @@ class Settings(BaseSettings):
     ORDER_BOOKING_HORIZON_DAYS: int = 14
     ORDER_MIN_LEAD_MIN: int = 30
     ORDER_BUFFER_MIN: int = 15
+    # Wall-clock basis for driver-schedule/slot math — DriverSchedule.weekday
+    # and start_time/end_time are naive local-time values, this is how they
+    # get anchored to real UTC instants.
+    COMPANY_TZ: str = "Europe/Moscow"
+    # Empty = routing/eta.py falls back to a haversine-distance estimate
+    # instead of calling Yandex — lets the order wizard work in dev/CI with
+    # zero external credentials.
+    YANDEX_API_KEY: str = ""
+    ORDER_ETA_BUFFER_FACTOR: float = 1.2
+    ORDER_SLOT_STEP_MIN: int = 30
+    # Audit-only threshold: OrderEvent payloads record whether a cancel fell
+    # inside this window, for a future stats feature — nothing is gated on it.
+    ORDER_LATE_CANCEL_MIN: int = 60
 
     # Kept as a raw CSV string, not a list[...] field: pydantic-settings
     # attempts a JSON-decode of any complex-typed env value at the source

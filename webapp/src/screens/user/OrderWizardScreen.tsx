@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { TopBar } from '../../components/ui/TopBar'
 import { WizardStepper } from '../../components/ui/WizardStepper'
 import { Button } from '../../components/ui/Button'
@@ -7,58 +8,143 @@ import { Card } from '../../components/ui/Card'
 import { RouteMap } from '../../components/ui/RouteMap'
 import { SuccessCheck } from '../../components/ui/SuccessCheck'
 import { Avatar } from '../../components/ui/Avatar'
-import { addressSuggestions, favoriteAddresses, recentAddresses, drivers, timeSlots } from '../../data/mock'
-import type { Address } from '../../data/types'
+import { ApiError, routing, type Address } from '../../lib/api'
+import { useFavoriteAddresses, useRecentAddresses, useTouchAddress } from '../../hooks/useAddresses'
+import { useDrivers } from '../../hooks/useDrivers'
+import { useCreateOrder, useSlots } from '../../hooks/useOrders'
 import { haptics } from '../../lib/haptics'
 import { useAppStore } from '../../store/appStore'
 
 const STEP_LABELS = ['Адреса', 'Время в пути', 'Дата и время', 'Подтверждение']
+const AVATAR_PALETTE = ['#7C3AED', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4']
 
-const next7Days = Array.from({ length: 7 }).map((_, i) => {
-  const d = new Date()
-  d.setDate(d.getDate() + i)
-  return d
-})
+function colorForId(id: string): string {
+  let hash = 0
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0
+  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length]
+}
+
+function toDateInputValue(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
+function makeSyntheticAddress(addressText: string): Address {
+  return {
+    id: `custom-${addressText}`,
+    label: null,
+    address_text: addressText,
+    lat: null,
+    lon: null,
+    is_favorite: false,
+    last_used_at: null,
+  }
+}
 
 export function OrderWizardScreen() {
   const goTo = useAppStore((s) => s.goTo)
+  const queryClient = useQueryClient()
+  const idempotencyKeyRef = useRef(crypto.randomUUID())
+
   const [step, setStep] = useState(0)
-  const [from, setFrom] = useState<Address | null>(favoriteAddresses[0])
+  const [from, setFrom] = useState<Address | null>(null)
   const [to, setTo] = useState<Address | null>(null)
   const [pickingFor, setPickingFor] = useState<'from' | 'to' | null>(null)
   const [addressQuery, setAddressQuery] = useState('')
-  const [dayIndex, setDayIndex] = useState(0)
-  const [slot, setSlot] = useState<string | null>(null)
+  const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()))
+  const [slotTime, setSlotTime] = useState<string | null>(null)
   const [driverChoice, setDriverChoice] = useState<'any' | string>('any')
   const [passengers, setPassengers] = useState(1)
   const [comment, setComment] = useState('')
-  const [submitted, setSubmitted] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [createdOrderId, setCreatedOrderId] = useState<string | null>(null)
 
-  const eta = useMemo(() => ({ min: 35, km: 18 }), [from, to])
+  const { data: favorites } = useFavoriteAddresses()
+  const { data: recents } = useRecentAddresses()
+  const touchAddress = useTouchAddress()
+  const { data: driverList } = useDrivers()
+  const createOrder = useCreateOrder()
 
-  const suggestions = useMemo(() => {
-    const q = addressQuery.trim().toLowerCase()
-    if (!q) return []
-    return addressSuggestions.filter((s) => s.toLowerCase().includes(q)).slice(0, 5)
-  }, [addressQuery])
+  const { data: eta, isLoading: etaLoading } = useQuery({
+    queryKey: ['eta', from?.address_text, from?.lat, from?.lon, to?.address_text, to?.lat, to?.lon],
+    queryFn: () =>
+      routing.eta({
+        from_address: from!.address_text,
+        from_lat: from!.lat ?? undefined,
+        from_lon: from!.lon ?? undefined,
+        to_address: to!.address_text,
+        to_lat: to!.lat ?? undefined,
+        to_lon: to!.lon ?? undefined,
+      }),
+    enabled: step >= 1 && !!from && !!to,
+  })
 
-  function pickAddress(addressText: string) {
+  const { data: slots, isLoading: slotsLoading } = useSlots(
+    step >= 2 ? selectedDate : null,
+    undefined,
+    eta?.duration_min ?? 30,
+  )
+
+  const horizonDays = slots?.booking_horizon_days ?? 14
+  const dayOptions = useMemo(
+    () =>
+      Array.from({ length: horizonDays + 1 }).map((_, i) => {
+        const d = new Date()
+        d.setDate(d.getDate() + i)
+        return d
+      }),
+    [horizonDays],
+  )
+
+  function selectAddress(address: Address) {
     haptics.selection()
-    const address: Address = { id: `custom-${addressText}`, label: '', addressText }
     if (pickingFor === 'from') setFrom(address)
     else setTo(address)
     setPickingFor(null)
     setAddressQuery('')
+    touchAddress.mutate({
+      addressText: address.address_text,
+      lat: address.lat ?? undefined,
+      lon: address.lon ?? undefined,
+    })
   }
 
-  const canContinue = [
-    !!from && !!to,
-    true,
-    !!slot,
-    true,
-  ][step]
+  const canContinue = [!!from && !!to, true, !!slotTime, true][step]
 
-  if (submitted) {
+  async function handleSubmit() {
+    if (!from || !to || !slotTime) return
+    setSubmitError(null)
+    try {
+      const created = await createOrder.mutateAsync({
+        idempotency_key: idempotencyKeyRef.current,
+        from_address: from.address_text,
+        from_lat: from.lat ?? undefined,
+        from_lon: from.lon ?? undefined,
+        to_address: to.address_text,
+        to_lat: to.lat ?? undefined,
+        to_lon: to.lon ?? undefined,
+        scheduled_at: slotTime,
+        est_duration_min: eta?.duration_min,
+        est_distance_km: eta?.distance_km,
+        passengers,
+        comment: comment || undefined,
+        driver_id: driverChoice === 'any' ? null : driverChoice,
+      })
+      haptics.notification('success')
+      setCreatedOrderId(created.id)
+    } catch (err) {
+      haptics.notification('error')
+      if (err instanceof ApiError && err.code === 'SLOT_CONFLICT') {
+        setSubmitError('Этот слот только что заняли — выберите другое время.')
+        await queryClient.invalidateQueries({ queryKey: ['orders', 'slots'] })
+        setSlotTime(null)
+        setStep(2)
+      } else {
+        setSubmitError('Не удалось создать заказ. Попробуйте ещё раз.')
+      }
+    }
+  }
+
+  if (createdOrderId) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 bg-[var(--tg-bg)] px-8 text-center">
         <SuccessCheck />
@@ -78,10 +164,7 @@ export function OrderWizardScreen() {
 
   return (
     <div className="flex h-full flex-col bg-[var(--tg-bg)]">
-      <TopBar
-        title="Заказ поездки"
-        onBack={() => (step === 0 ? goTo('home') : setStep((s) => s - 1))}
-      />
+      <TopBar title="Заказ поездки" onBack={() => (step === 0 ? goTo('home') : setStep((s) => s - 1))} />
       <WizardStepper step={step} total={4} />
       <p className="px-4 pb-3 text-[12px] font-medium uppercase tracking-wide text-[var(--tg-text-secondary)]">
         Шаг {step + 1} из 4 · {STEP_LABELS[step]}
@@ -90,7 +173,13 @@ export function OrderWizardScreen() {
       <div className="flex-1 overflow-y-auto px-4 pb-4">
         <AnimatePresence mode="wait">
           {step === 0 && (
-            <motion.div key="s0" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="flex flex-col gap-4">
+            <motion.div
+              key="s0"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              className="flex flex-col gap-4"
+            >
               <AddressField
                 label="Откуда"
                 value={from}
@@ -126,7 +215,9 @@ export function OrderWizardScreen() {
                       value={addressQuery}
                       onChange={(e) => setAddressQuery(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && addressQuery.trim()) pickAddress(addressQuery.trim())
+                        if (e.key === 'Enter' && addressQuery.trim()) {
+                          selectAddress(makeSyntheticAddress(addressQuery.trim()))
+                        }
                       }}
                       placeholder="Введите адрес или ориентир"
                       className="h-11 w-full rounded-xl border border-[var(--tg-border)] bg-[var(--tg-bg)] pl-9 pr-3 text-[13px] text-[var(--tg-text)] outline-none focus:border-primary"
@@ -134,52 +225,48 @@ export function OrderWizardScreen() {
                   </div>
 
                   {addressQuery.trim() ? (
-                    <div className="flex flex-col gap-1">
-                      {suggestions.map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => pickAddress(s)}
-                          className="flex items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] text-[var(--tg-text)] active:bg-black/5 dark:active:bg-white/5"
-                        >
-                          <span className="text-[var(--tg-text-secondary)]">📍</span>
-                          <span className="truncate">{s}</span>
-                        </button>
-                      ))}
-                      <button
-                        onClick={() => pickAddress(addressQuery.trim())}
-                        className="mt-1 flex items-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-left text-[13px] font-medium text-primary active:bg-primary/5"
-                      >
-                        Использовать «{addressQuery.trim()}»
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => selectAddress(makeSyntheticAddress(addressQuery.trim()))}
+                      className="flex items-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-left text-[13px] font-medium text-primary active:bg-primary/5"
+                    >
+                      Использовать «{addressQuery.trim()}»
+                    </button>
                   ) : (
                     <>
                       <p className="mb-2 text-[12px] font-medium text-[var(--tg-text-secondary)]">Избранные адреса</p>
                       <div className="flex flex-col gap-1">
-                        {favoriteAddresses.map((a) => (
-                          <button
-                            key={a.id}
-                            onClick={() => pickAddress(a.addressText)}
-                            className="flex items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] active:bg-black/5 dark:active:bg-white/5"
-                          >
-                            <span className="text-primary">★</span>
-                            <span className="font-medium text-[var(--tg-text)]">{a.label}</span>
-                            <span className="truncate text-[var(--tg-text-secondary)]">{a.addressText}</span>
-                          </button>
-                        ))}
+                        {favorites?.length ? (
+                          favorites.map((a) => (
+                            <button
+                              key={a.id}
+                              onClick={() => selectAddress(a)}
+                              className="flex items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] active:bg-black/5 dark:active:bg-white/5"
+                            >
+                              <span className="text-primary">★</span>
+                              <span className="font-medium text-[var(--tg-text)]">{a.label ?? 'Адрес'}</span>
+                              <span className="truncate text-[var(--tg-text-secondary)]">{a.address_text}</span>
+                            </button>
+                          ))
+                        ) : (
+                          <p className="text-[12px] text-[var(--tg-text-secondary)]">Нет избранных адресов</p>
+                        )}
                       </div>
                       <p className="mb-2 mt-3 text-[12px] font-medium text-[var(--tg-text-secondary)]">Недавние</p>
                       <div className="flex flex-col gap-1">
-                        {recentAddresses.map((a) => (
-                          <button
-                            key={a.id}
-                            onClick={() => pickAddress(a.addressText)}
-                            className="flex items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] text-[var(--tg-text)] active:bg-black/5 dark:active:bg-white/5"
-                          >
-                            <span className="text-[var(--tg-text-secondary)]">⏱</span>
-                            {a.addressText}
-                          </button>
-                        ))}
+                        {recents?.length ? (
+                          recents.map((a) => (
+                            <button
+                              key={a.id}
+                              onClick={() => selectAddress(a)}
+                              className="flex items-center gap-2 rounded-xl px-2 py-2 text-left text-[13px] text-[var(--tg-text)] active:bg-black/5 dark:active:bg-white/5"
+                            >
+                              <span className="text-[var(--tg-text-secondary)]">⏱</span>
+                              {a.address_text}
+                            </button>
+                          ))
+                        ) : (
+                          <p className="text-[12px] text-[var(--tg-text-secondary)]">Пока нет недавних адресов</p>
+                        )}
                       </div>
                     </>
                   )}
@@ -189,75 +276,117 @@ export function OrderWizardScreen() {
           )}
 
           {step === 1 && (
-            <motion.div key="s1" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="flex flex-col gap-4">
+            <motion.div
+              key="s1"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              className="flex flex-col gap-4"
+            >
               <RouteMap />
               <Card className="flex items-center justify-between p-4">
                 <div>
                   <p className="text-[13px] text-[var(--tg-text-secondary)]">Примерное время в пути</p>
-                  <p className="text-[22px] font-semibold text-[var(--tg-text)]">≈ {eta.min} мин</p>
+                  <p className="text-[22px] font-semibold text-[var(--tg-text)]">
+                    {etaLoading ? '…' : `≈ ${eta?.duration_min ?? '—'} мин`}
+                  </p>
                 </div>
                 <div className="text-right">
                   <p className="text-[13px] text-[var(--tg-text-secondary)]">Расстояние</p>
-                  <p className="text-[16px] font-medium text-[var(--tg-text)]">{eta.km} км</p>
+                  <p className="text-[16px] font-medium text-[var(--tg-text)]">
+                    {etaLoading ? '…' : (eta?.distance_km ?? '—')} км
+                  </p>
                 </div>
               </Card>
               <p className="px-1 text-[12px] text-[var(--tg-text-secondary)]">
-                Оценка с учётом запаса ×1.2. Точное время зависит от трафика в момент поездки.
+                {eta?.is_estimated
+                  ? 'Приблизительная оценка (по прямой, с запасом). Точное время зависит от трафика.'
+                  : 'Оценка с учётом трафика и запаса.'}
               </p>
             </motion.div>
           )}
 
           {step === 2 && (
-            <motion.div key="s2" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="flex flex-col gap-4">
+            <motion.div
+              key="s2"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              className="flex flex-col gap-4"
+            >
               <div className="flex gap-2 overflow-x-auto pb-1">
-                {next7Days.map((d, i) => (
-                  <button
-                    key={i}
-                    onClick={() => {
-                      setDayIndex(i)
-                      setSlot(null)
-                    }}
-                    className={`flex shrink-0 flex-col items-center rounded-2xl px-3 py-2 text-[12px] ${
-                      i === dayIndex ? 'bg-gradient-to-br from-primary to-secondary text-white' : 'bg-[var(--tg-surface)] text-[var(--tg-text)]'
-                    }`}
-                  >
-                    <span className="opacity-80">{d.toLocaleDateString('ru-RU', { weekday: 'short' })}</span>
-                    <span className="text-[15px] font-semibold">{d.getDate()}</span>
-                  </button>
-                ))}
+                {dayOptions.map((d) => {
+                  const iso = toDateInputValue(d)
+                  return (
+                    <button
+                      key={iso}
+                      onClick={() => {
+                        setSelectedDate(iso)
+                        setSlotTime(null)
+                      }}
+                      className={`flex shrink-0 flex-col items-center rounded-2xl px-3 py-2 text-[12px] ${
+                        iso === selectedDate
+                          ? 'bg-gradient-to-br from-primary to-secondary text-white'
+                          : 'bg-[var(--tg-surface)] text-[var(--tg-text)]'
+                      }`}
+                    >
+                      <span className="opacity-80">{d.toLocaleDateString('ru-RU', { weekday: 'short' })}</span>
+                      <span className="text-[15px] font-semibold">{d.getDate()}</span>
+                    </button>
+                  )
+                })}
               </div>
 
               <div>
                 <p className="mb-2 text-[12px] font-medium text-[var(--tg-text-secondary)]">Свободные слоты</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {timeSlots.map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => {
-                        haptics.selection()
-                        setSlot(t)
-                      }}
-                      className={`rounded-xl border py-2.5 text-[14px] font-medium transition-colors ${
-                        slot === t
-                          ? 'border-primary bg-primary text-white'
-                          : 'border-[var(--tg-border)] text-[var(--tg-text)] active:bg-black/5 dark:active:bg-white/5'
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
+                {slotsLoading ? (
+                  <div className="flex justify-center py-6">
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  </div>
+                ) : slots?.times.length ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    {slots.times.map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => {
+                          haptics.selection()
+                          setSlotTime(t)
+                        }}
+                        className={`rounded-xl border py-2.5 text-[14px] font-medium transition-colors ${
+                          slotTime === t
+                            ? 'border-primary bg-primary text-white'
+                            : 'border-[var(--tg-border)] text-[var(--tg-text)] active:bg-black/5 dark:active:bg-white/5'
+                        }`}
+                      >
+                        {new Date(t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="py-4 text-center text-[13px] text-[var(--tg-text-secondary)]">
+                    На этот день свободных слотов нет — попробуйте другую дату
+                  </p>
+                )}
               </div>
             </motion.div>
           )}
 
           {step === 3 && (
-            <motion.div key="s3" initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -16 }} className="flex flex-col gap-4">
+            <motion.div
+              key="s3"
+              initial={{ opacity: 0, x: 16 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -16 }}
+              className="flex flex-col gap-4"
+            >
               <Card className="flex flex-col gap-2 p-4">
-                <Row label="Откуда" value={from?.addressText ?? '—'} />
-                <Row label="Куда" value={to?.addressText ?? '—'} />
-                <Row label="Когда" value={`${next7Days[dayIndex].toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}, ${slot ?? '—'}`} />
-                <Row label="Время в пути" value={`≈ ${eta.min} мин · ${eta.km} км`} />
+                <Row label="Откуда" value={from?.address_text ?? '—'} />
+                <Row label="Куда" value={to?.address_text ?? '—'} />
+                <Row
+                  label="Когда"
+                  value={slotTime ? new Date(slotTime).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
+                />
+                <Row label="Время в пути" value={eta ? `≈ ${eta.duration_min} мин · ${eta.distance_km} км` : '—'} />
               </Card>
 
               <div>
@@ -272,7 +401,7 @@ export function OrderWizardScreen() {
                     <span className="text-[13px] font-medium text-[var(--tg-text)]">Любой свободный</span>
                     <span className="text-[12px] text-[var(--tg-text-secondary)]">заберёт первый принявший</span>
                   </button>
-                  {drivers.filter((d) => d.isActive).map((d) => (
+                  {driverList?.map((d) => (
                     <button
                       key={d.id}
                       onClick={() => setDriverChoice(d.id)}
@@ -280,10 +409,12 @@ export function OrderWizardScreen() {
                         driverChoice === d.id ? 'border-primary bg-primary/5' : 'border-[var(--tg-border)]'
                       }`}
                     >
-                      <Avatar name={d.fullName} color={d.avatarColor} size={32} />
+                      <Avatar name={d.full_name ?? '?'} color={colorForId(d.id)} size={32} />
                       <div>
-                        <p className="text-[13px] font-medium text-[var(--tg-text)]">{d.fullName}</p>
-                        <p className="text-[11px] text-[var(--tg-text-secondary)]">{d.car.model} · ★ {d.rating}</p>
+                        <p className="text-[13px] font-medium text-[var(--tg-text)]">{d.full_name ?? 'Водитель'}</p>
+                        {d.car_model && (
+                          <p className="text-[11px] text-[var(--tg-text-secondary)]">{d.car_model}</p>
+                        )}
                       </div>
                     </button>
                   ))}
@@ -316,6 +447,8 @@ export function OrderWizardScreen() {
                 rows={2}
                 className="rounded-2xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-3 py-2 text-[13px] text-[var(--tg-text)] outline-none focus:border-primary"
               />
+
+              {submitError && <p className="text-[13px] text-danger">{submitError}</p>}
             </motion.div>
           )}
         </AnimatePresence>
@@ -325,13 +458,12 @@ export function OrderWizardScreen() {
         <Button
           full
           size="lg"
-          disabled={!canContinue}
+          disabled={!canContinue || createOrder.isPending}
           onClick={() => {
             if (step < 3) {
               setStep((s) => s + 1)
             } else {
-              haptics.notification('success')
-              setSubmitted(true)
+              void handleSubmit()
             }
           }}
         >
@@ -350,7 +482,7 @@ function AddressField({ label, value, onPick }: { label: string; value: Address 
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--tg-text-secondary)]">{label}</p>
-        <p className="truncate text-[14px] text-[var(--tg-text)]">{value?.addressText ?? 'Выбрать адрес'}</p>
+        <p className="truncate text-[14px] text-[var(--tg-text)]">{value?.address_text ?? 'Выбрать адрес'}</p>
       </div>
     </button>
   )

@@ -7,13 +7,15 @@ from typing import Literal
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.app.deps import require_role
 from api.app.errors import AppError
+from api.app.orders_api import TERMINAL_STATUSES, OrderOut, serialize_order
 from shared.auth_jwt import revoke_all_sessions
 from shared.db.engine import get_session
-from shared.db.models import Driver, User, UserEvent
+from shared.db.models import Driver, Order, OrderEvent, User, UserEvent
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
@@ -146,3 +148,126 @@ async def set_user_role(
     await session.commit()
     await session.refresh(user)
     return user
+
+
+class AdminOrderOut(OrderOut):
+    user_full_name: str | None = None
+    user_phone: str | None = None
+
+
+class AssignRequest(BaseModel):
+    driver_id: uuid.UUID | None = None
+
+
+class AdminCancelRequest(BaseModel):
+    reason: str
+
+
+ADMIN_REASSIGNABLE_STATUSES = ("pending_driver", "confirmed", "driver_en_route")
+
+
+async def _serialize_admin(order: Order, session: AsyncSession) -> AdminOrderOut:
+    base = await serialize_order(order, session)
+    out = AdminOrderOut(**base.model_dump())
+    orderer = await session.get(User, order.user_id)
+    if orderer is not None:
+        out.user_full_name = orderer.full_name
+        out.user_phone = orderer.phone
+    return out
+
+
+@router.get("/orders", response_model=list[AdminOrderOut])
+async def list_admin_orders(
+    status: str | None = None,
+    driver_id: uuid.UUID | None = None,
+    date_from: dt.datetime | None = None,
+    date_to: dt.datetime | None = None,
+    admin: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> list[AdminOrderOut]:
+    stmt = select(Order)
+    if status is not None:
+        stmt = stmt.where(Order.status == status)
+    if driver_id is not None:
+        stmt = stmt.where(Order.driver_id == driver_id)
+    if date_from is not None:
+        stmt = stmt.where(Order.scheduled_at >= date_from)
+    if date_to is not None:
+        stmt = stmt.where(Order.scheduled_at <= date_to)
+    result = await session.execute(stmt.order_by(Order.scheduled_at.desc()))
+    orders = result.scalars().all()
+    return [await _serialize_admin(o, session) for o in orders]
+
+
+@router.patch("/orders/{order_id}/assign", response_model=AdminOrderOut)
+async def assign_order(
+    order_id: uuid.UUID,
+    body: AssignRequest,
+    admin: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> AdminOrderOut:
+    order = await session.get(Order, order_id)
+    if order is None:
+        raise AppError(404, "NOT_FOUND", "Order not found")
+    if order.status not in ADMIN_REASSIGNABLE_STATUSES:
+        raise AppError(409, "INVALID_TRANSITION", "Order can no longer be reassigned")
+
+    if body.driver_id is not None and await session.get(Driver, body.driver_id) is None:
+        raise AppError(404, "NOT_FOUND", "Driver not found")
+
+    from_driver_id = order.driver_id
+    order.driver_id = body.driver_id
+    order.updated_at = dt.datetime.now(dt.UTC)
+    session.add(
+        OrderEvent(
+            order_id=order.id,
+            event_type="admin_reassigned",
+            actor_id=admin.id,
+            payload={
+                "from_driver_id": str(from_driver_id) if from_driver_id else None,
+                "to_driver_id": str(body.driver_id) if body.driver_id else None,
+            },
+        )
+    )
+
+    try:
+        await session.commit()
+    except IntegrityError as e:
+        await session.rollback()
+        raise AppError(
+            409, "SLOT_CONFLICT", "That driver already has an overlapping booking"
+        ) from e
+
+    await session.refresh(order)
+    return await _serialize_admin(order, session)
+
+
+@router.post("/orders/{order_id}/cancel", response_model=AdminOrderOut)
+async def admin_cancel_order(
+    order_id: uuid.UUID,
+    body: AdminCancelRequest,
+    admin: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> AdminOrderOut:
+    order = await session.get(Order, order_id)
+    if order is None:
+        raise AppError(404, "NOT_FOUND", "Order not found")
+    if order.status in TERMINAL_STATUSES:
+        raise AppError(409, "INVALID_TRANSITION", "Order is already in a terminal state")
+
+    previous_status = order.status
+    order.status = "cancelled_by_admin"
+    order.cancel_reason = body.reason
+    order.cancelled_by = "admin"
+    order.updated_at = dt.datetime.now(dt.UTC)
+    session.add(
+        OrderEvent(
+            order_id=order.id,
+            event_type="cancelled_by_admin",
+            actor_id=admin.id,
+            payload={"reason": body.reason, "previous_status": previous_status},
+        )
+    )
+    await session.commit()
+    await session.refresh(order)
+    return await _serialize_admin(order, session)

@@ -4,14 +4,40 @@ import { TabStrip } from '../../components/ui/TabStrip'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Avatar } from '../../components/ui/Avatar'
+import { StatusBadge } from '../../components/ui/StatusBadge'
 import { EmptyState } from '../../components/ui/EmptyState'
-import { formatRelative, formatTime } from '../../lib/format'
+import { formatRelative, formatDateShort, formatTime } from '../../lib/format'
 import { admin, ApiError, type AdminUser, type VerificationRequest } from '../../lib/api'
+import { useAdminOrders, useAssignOrder, useAdminCancelOrder } from '../../hooks/useOrders'
+import { useDrivers } from '../../hooks/useDrivers'
 import { useAppStore } from '../../store/appStore'
-import { driverQueue, topRoutes, upcomingOrder, weeklyTrips } from '../../data/mock'
+import { topRoutes, weeklyTrips } from '../../data/mock'
+import type { OrderStatus } from '../../data/types'
 import { haptics } from '../../lib/haptics'
 
 type Tab = 'requests' | 'users' | 'orders' | 'stats' | 'settings'
+
+const TERMINAL_STATUSES: OrderStatus[] = [
+  'completed',
+  'cancelled_by_user',
+  'cancelled_by_driver',
+  'cancelled_by_admin',
+  'expired',
+]
+
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Все статусы' },
+  { value: 'pending_driver', label: 'Ожидает водителя' },
+  { value: 'confirmed', label: 'Подтверждён' },
+  { value: 'driver_en_route', label: 'Водитель едет' },
+  { value: 'driver_arrived', label: 'Водитель на месте' },
+  { value: 'in_progress', label: 'В процессе' },
+  { value: 'completed', label: 'Завершён' },
+  { value: 'cancelled_by_user', label: 'Отменён пользователем' },
+  { value: 'cancelled_by_driver', label: 'Отменён водителем' },
+  { value: 'cancelled_by_admin', label: 'Отменён админом' },
+  { value: 'expired', label: 'Просрочен' },
+]
 
 const ROLE_LABEL: Record<AdminUser['role'], string> = {
   user: 'Сотрудник',
@@ -29,6 +55,14 @@ function ErrorIcon() {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+      <path d="M5 13l4 4L19 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -52,6 +86,36 @@ export function AdminScreen() {
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [usersError, setUsersError] = useState<string | null>(null)
   const [roleError, setRoleError] = useState<string | null>(null)
+
+  const [statusFilter, setStatusFilter] = useState('')
+  const [driverFilter, setDriverFilter] = useState('')
+  const [reassigningId, setReassigningId] = useState<string | null>(null)
+  const [reassignDriverId, setReassignDriverId] = useState('')
+  const [cancelingId, setCancelingId] = useState<string | null>(null)
+  const [cancelReason, setCancelReason] = useState('')
+
+  const {
+    data: adminOrdersList,
+    isLoading: adminOrdersLoading,
+    error: adminOrdersError,
+  } = useAdminOrders({ status: statusFilter || undefined, driver_id: driverFilter || undefined })
+  const { data: driverRoster } = useDrivers()
+  const assignOrder = useAssignOrder()
+  const adminCancelOrder = useAdminCancelOrder()
+
+  async function handleReassign(orderId: string) {
+    haptics.impact('medium')
+    await assignOrder.mutateAsync({ id: orderId, driverId: reassignDriverId || null })
+    setReassigningId(null)
+    setReassignDriverId('')
+  }
+
+  async function handleAdminCancel(orderId: string) {
+    haptics.impact('medium')
+    await adminCancelOrder.mutateAsync({ id: orderId, reason: cancelReason.trim() })
+    setCancelingId(null)
+    setCancelReason('')
+  }
 
   useEffect(() => {
     admin
@@ -232,28 +296,148 @@ export function AdminScreen() {
         )}
 
         {tab === 'orders' && (
-          <div className="flex flex-col gap-2">
-            <p className="mb-1 text-[11px] text-[var(--tg-text-secondary)]">
-              Демо-данные — реальные заказы появятся после M3
-            </p>
-            {[upcomingOrder, ...driverQueue].map((o) => (
-              <Card key={o.id} className="p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-[13px] font-medium text-[var(--tg-text)]">{formatTime(o.scheduledAt)}</p>
-                </div>
-                <p className="mt-1 truncate text-[12px] text-[var(--tg-text-secondary)]">
-                  {o.from.addressText} → {o.to.addressText}
-                </p>
-                <p className="mt-1 text-[11px] text-[var(--tg-text-secondary)]">Заказчик: {o.createdByName}</p>
-              </Card>
-            ))}
+          <div className="flex flex-col gap-3">
+            <div className="flex gap-2">
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="h-9 flex-1 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-2 text-[12px] text-[var(--tg-text)] outline-none"
+              >
+                {STATUS_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={driverFilter}
+                onChange={(e) => setDriverFilter(e.target.value)}
+                className="h-9 flex-1 rounded-xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-2 text-[12px] text-[var(--tg-text)] outline-none"
+              >
+                <option value="">Все водители</option>
+                {driverRoster?.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.full_name ?? 'Водитель'}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {adminOrdersLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+              </div>
+            ) : adminOrdersError ? (
+              <EmptyState icon={<ErrorIcon />} title="Ошибка загрузки" subtitle={adminOrdersError.message} />
+            ) : adminOrdersList?.length ? (
+              adminOrdersList.map((o) => {
+                const terminal = TERMINAL_STATUSES.includes(o.status)
+                return (
+                  <Card key={o.id} className="flex flex-col gap-2 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[13px] font-medium text-[var(--tg-text)]">
+                        {formatDateShort(o.scheduled_at)}, {formatTime(o.scheduled_at)}
+                      </p>
+                      <StatusBadge status={o.status} />
+                    </div>
+                    <p className="truncate text-[12px] text-[var(--tg-text-secondary)]">
+                      {o.from_address} → {o.to_address}
+                    </p>
+                    <p className="text-[11px] text-[var(--tg-text-secondary)]">
+                      Заказчик: {o.user_full_name ?? o.user_phone ?? '—'} · Водитель:{' '}
+                      {o.driver_full_name ?? 'не назначен'}
+                    </p>
+
+                    {reassigningId === o.id ? (
+                      <div className="flex flex-col gap-2 border-t border-[var(--tg-border)] pt-2">
+                        <select
+                          value={reassignDriverId}
+                          onChange={(e) => setReassignDriverId(e.target.value)}
+                          className="h-9 w-full rounded-xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-2 text-[12px] text-[var(--tg-text)] outline-none"
+                        >
+                          <option value="">Не назначен (любой свободный)</option>
+                          {driverRoster?.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.full_name ?? 'Водитель'}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="flex gap-2">
+                          <Button variant="secondary" size="md" full onClick={() => setReassigningId(null)}>
+                            Отмена
+                          </Button>
+                          <Button size="md" full onClick={() => handleReassign(o.id)}>
+                            Сохранить
+                          </Button>
+                        </div>
+                      </div>
+                    ) : cancelingId === o.id ? (
+                      <div className="flex flex-col gap-2 border-t border-[var(--tg-border)] pt-2">
+                        <input
+                          value={cancelReason}
+                          onChange={(e) => setCancelReason(e.target.value)}
+                          placeholder="Причина отмены"
+                          className="h-9 w-full rounded-xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-3 text-[12px] text-[var(--tg-text)] outline-none focus:border-primary"
+                        />
+                        <div className="flex gap-2">
+                          <Button variant="secondary" size="md" full onClick={() => setCancelingId(null)}>
+                            Назад
+                          </Button>
+                          <Button
+                            variant="danger"
+                            size="md"
+                            full
+                            disabled={!cancelReason.trim()}
+                            onClick={() => handleAdminCancel(o.id)}
+                          >
+                            Отменить заказ
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      !terminal && (
+                        <div className="flex gap-2 border-t border-[var(--tg-border)] pt-2">
+                          <Button
+                            variant="secondary"
+                            size="md"
+                            full
+                            className="!text-[12px]"
+                            onClick={() => {
+                              setReassigningId(o.id)
+                              setReassignDriverId(o.driver_id ?? '')
+                            }}
+                          >
+                            Переназначить
+                          </Button>
+                          <Button
+                            variant="danger"
+                            size="md"
+                            full
+                            className="!text-[12px]"
+                            onClick={() => setCancelingId(o.id)}
+                          >
+                            Отменить
+                          </Button>
+                        </div>
+                      )
+                    )}
+                  </Card>
+                )
+              })
+            ) : (
+              <EmptyState
+                icon={<CheckIcon />}
+                title="Заказов нет"
+                subtitle="По выбранным фильтрам ничего не найдено"
+              />
+            )}
           </div>
         )}
 
         {tab === 'stats' && (
           <div className="flex flex-col gap-4">
             <p className="text-[11px] text-[var(--tg-text-secondary)]">
-              Демо-данные — реальная статистика появится после M3
+              Демо-данные — статистика на реальных заказах появится в одном из следующих этапов
             </p>
             <Card className="p-4">
               <div className="mb-3 flex items-center justify-between">

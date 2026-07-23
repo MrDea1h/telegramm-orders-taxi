@@ -9,11 +9,13 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Numeric,
     SmallInteger,
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TSTZRANGE, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -55,11 +57,28 @@ class Driver(Base):
     car_plate: Mapped[str | None] = mapped_column(String(20))
     car_color: Mapped[str | None] = mapped_column(String(50))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    # Driver's own real-time presence toggle — distinct from is_active, which
+    # is an admin-only permanent enable/disable switch. A driver going
+    # off-duty for an hour shouldn't look like an admin-disabled account.
+    on_duty: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
 
 class DriverSchedule(Base):
     __tablename__ = "driver_schedule"
-    __table_args__ = (CheckConstraint("weekday between 0 and 6", name="weekday_range"),)
+    __table_args__ = (
+        CheckConstraint("weekday between 0 and 6", name="weekday_range"),
+        # Blocks literal duplicate rows only, not genuine time-overlap on the
+        # same weekday (e.g. 09:00-13:00 and 12:00-17:00 both present) — a
+        # true overlap-proof constraint would need the same EXCLUDE/GiST
+        # approach orders.excl_orders_driver_overlap uses (see migration
+        # 0001), which requires a native range type; start_time/end_time are
+        # plain Time columns here, and widening them to support that is a
+        # bigger change than this gap warrants. Real overlap prevention is
+        # enforced app-side in the schedule-replace endpoint instead, which
+        # rewrites the whole weekly grid in one call and can trivially
+        # sort+scan for overlaps before committing.
+        UniqueConstraint("driver_id", "weekday", "start_time"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
@@ -111,6 +130,16 @@ class Order(Base):
             "'cancelled_by_admin','expired')",
             name="status",
         ),
+        # Partial (not global) unique: idempotency_key is only ever set on
+        # create, and only needs to be unique per-user, so a replayed
+        # create-order request can be looked up by (user_id, key) directly.
+        Index(
+            "uq_orders_user_idempotency_key",
+            "user_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
         # NOTE: the EXCLUDE USING gist constraint that actually prevents
         # double-booking a driver (excl_orders_driver_overlap) is NOT
         # declared here — SQLAlchemy's Table/Column/Constraint API has no
@@ -151,6 +180,7 @@ class Order(Base):
     )
     cancel_reason: Mapped[str | None] = mapped_column(String(255))
     cancelled_by: Mapped[str | None] = mapped_column(String(20))
+    idempotency_key: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
 class OrderEvent(Base):

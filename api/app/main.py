@@ -5,7 +5,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.app import admin_api, auth_api, push_api
+from api.app import (
+    addresses_api,
+    admin_api,
+    auth_api,
+    drivers_api,
+    orders_api,
+    push_api,
+    routing_api,
+)
 from api.app.errors import register_error_handlers
 from shared.config import get_settings
 from shared.db.migrate import upgrade_to_head
@@ -63,6 +71,10 @@ app.add_middleware(
 app.include_router(auth_api.router)
 app.include_router(admin_api.router)
 app.include_router(push_api.router)
+app.include_router(addresses_api.router)
+app.include_router(drivers_api.router)
+app.include_router(routing_api.router)
+app.include_router(orders_api.router)
 
 
 @app.get("/healthz")

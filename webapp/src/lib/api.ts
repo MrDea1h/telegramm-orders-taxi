@@ -1,3 +1,4 @@
+import type { OrderStatus } from '../data/types'
 import { useAppStore } from '../store/appStore'
 
 export const REFRESH_TOKEN_STORAGE_KEY = 'apexride_refresh_token'
@@ -180,6 +181,237 @@ export const admin = {
       method: 'PATCH',
       auth: true,
       body: { role },
+    }),
+}
+
+export interface Address {
+  id: string
+  label: string | null
+  address_text: string
+  lat: number | null
+  lon: number | null
+  is_favorite: boolean
+  last_used_at: string | null
+}
+
+export const addresses = {
+  listFavorites: () => apiFetch<Address[]>('/v1/addresses?scope=favorites', { auth: true }),
+
+  listRecent: () => apiFetch<Address[]>('/v1/addresses?scope=recent', { auth: true }),
+
+  create: (input: {
+    label?: string
+    address_text: string
+    lat?: number
+    lon?: number
+    is_favorite?: boolean
+  }) => apiFetch<Address>('/v1/addresses', { method: 'POST', auth: true, body: input }),
+
+  setFavorite: (id: string, isFavorite: boolean) =>
+    apiFetch<Address>(`/v1/addresses/${id}/favorite`, {
+      method: 'PATCH',
+      auth: true,
+      body: { is_favorite: isFavorite },
+    }),
+
+  remove: (id: string) => apiFetch<void>(`/v1/addresses/${id}`, { method: 'DELETE', auth: true }),
+
+  touch: (addressText: string, lat?: number, lon?: number) =>
+    apiFetch<Address>('/v1/addresses/touch', {
+      method: 'POST',
+      auth: true,
+      body: { address_text: addressText, lat, lon },
+    }),
+}
+
+export interface DriverProfile {
+  id: string
+  full_name: string | null
+  car_model: string | null
+  car_plate: string | null
+  car_color: string | null
+  is_active: boolean
+  on_duty: boolean
+}
+
+export interface ScheduleWindow {
+  id?: string
+  weekday: number
+  start_time: string
+  end_time: string
+}
+
+export interface TimeOff {
+  id: string
+  starts_at: string
+  ends_at: string
+  reason: string | null
+}
+
+export const drivers = {
+  list: () => apiFetch<DriverProfile[]>('/v1/drivers', { auth: true }),
+
+  me: () => apiFetch<DriverProfile>('/v1/drivers/me', { auth: true }),
+
+  mySchedule: () => apiFetch<ScheduleWindow[]>('/v1/drivers/me/schedule', { auth: true }),
+
+  setMySchedule: (windows: { weekday: number; start_time: string; end_time: string }[]) =>
+    apiFetch<ScheduleWindow[]>('/v1/drivers/me/schedule', {
+      method: 'PUT',
+      auth: true,
+      body: windows,
+    }),
+
+  addTimeOff: (startsAt: string, endsAt: string, reason?: string) =>
+    apiFetch<TimeOff>('/v1/drivers/me/time-off', {
+      method: 'POST',
+      auth: true,
+      body: { starts_at: startsAt, ends_at: endsAt, reason },
+    }),
+
+  removeTimeOff: (id: string) =>
+    apiFetch<void>(`/v1/drivers/me/time-off/${id}`, { method: 'DELETE', auth: true }),
+
+  setDuty: (onDuty: boolean) =>
+    apiFetch<{ on_duty: boolean }>('/v1/drivers/me/duty', {
+      method: 'PATCH',
+      auth: true,
+      body: { on_duty: onDuty },
+    }),
+}
+
+export interface EtaResult {
+  duration_min: number
+  distance_km: number
+  is_estimated: boolean
+  source: 'yandex' | 'fallback'
+}
+
+export const routing = {
+  eta: (input: {
+    from_lat?: number
+    from_lon?: number
+    from_address?: string
+    to_lat?: number
+    to_lon?: number
+    to_address?: string
+  }) => apiFetch<EtaResult>('/v1/routing/eta', { method: 'POST', auth: true, body: input }),
+}
+
+export interface Order {
+  id: string
+  user_id: string
+  driver_id: string | null
+  status: OrderStatus
+  from_address: string
+  from_lat: number | null
+  from_lon: number | null
+  to_address: string
+  to_lat: number | null
+  to_lon: number | null
+  scheduled_at: string
+  est_duration_min: number
+  est_distance_km: number | null
+  passengers: number
+  comment: string | null
+  created_at: string
+  updated_at: string
+  cancel_reason: string | null
+  cancelled_by: string | null
+  driver_full_name: string | null
+  driver_car_model: string | null
+  driver_car_plate: string | null
+  driver_car_color: string | null
+}
+
+export interface SlotsResult {
+  times: string[]
+  booking_horizon_days: number
+  min_lead_min: number
+}
+
+export type OrderTransitionAction =
+  | 'accept'
+  | 'reject'
+  | 'depart'
+  | 'arrive'
+  | 'start'
+  | 'complete'
+
+export const orders = {
+  slots: (date: string, driverId?: string, durationMin?: number) => {
+    const params = new URLSearchParams({ date })
+    if (driverId) params.set('driver_id', driverId)
+    if (durationMin) params.set('duration_min', String(durationMin))
+    return apiFetch<SlotsResult>(`/v1/orders/slots?${params.toString()}`, { auth: true })
+  },
+
+  create: (input: {
+    idempotency_key: string
+    from_address: string
+    from_lat?: number
+    from_lon?: number
+    to_address: string
+    to_lat?: number
+    to_lon?: number
+    scheduled_at: string
+    est_duration_min?: number
+    est_distance_km?: number
+    passengers?: number
+    comment?: string
+    driver_id?: string | null
+  }) => apiFetch<Order>('/v1/orders', { method: 'POST', auth: true, body: input }),
+
+  list: (scope: 'upcoming' | 'history') =>
+    apiFetch<Order[]>(`/v1/orders?scope=${scope}`, { auth: true }),
+
+  get: (id: string) => apiFetch<Order>(`/v1/orders/${id}`, { auth: true }),
+
+  update: (id: string, input: { comment?: string; passengers?: number }) =>
+    apiFetch<Order>(`/v1/orders/${id}`, { method: 'PATCH', auth: true, body: input }),
+
+  cancel: (id: string, reason?: string) =>
+    apiFetch<Order>(`/v1/orders/${id}/cancel`, { method: 'POST', auth: true, body: { reason } }),
+
+  transition: (id: string, action: OrderTransitionAction, reason?: string) =>
+    apiFetch<Order>(`/v1/orders/${id}/transition`, {
+      method: 'POST',
+      auth: true,
+      body: { action, reason },
+    }),
+
+  queue: () => apiFetch<Order[]>('/v1/orders/queue', { auth: true }),
+}
+
+export interface AdminOrder extends Order {
+  user_full_name: string | null
+  user_phone: string | null
+}
+
+export const adminOrders = {
+  list: (
+    filters: { status?: string; driver_id?: string; date_from?: string; date_to?: string } = {},
+  ) => {
+    const params = new URLSearchParams()
+    for (const [key, value] of Object.entries(filters)) {
+      if (value) params.set(key, value)
+    }
+    const qs = params.toString()
+    return apiFetch<AdminOrder[]>(`/v1/admin/orders${qs ? `?${qs}` : ''}`, { auth: true })
+  },
+
+  assign: (id: string, driverId: string | null) =>
+    apiFetch<AdminOrder>(`/v1/admin/orders/${id}/assign`, {
+      method: 'PATCH',
+      auth: true,
+      body: { driver_id: driverId },
+    }),
+
+  cancel: (id: string, reason: string) =>
+    apiFetch<AdminOrder>(`/v1/admin/orders/${id}/cancel`, {
+      method: 'POST',
+      auth: true,
+      body: { reason },
     }),
 }
 
