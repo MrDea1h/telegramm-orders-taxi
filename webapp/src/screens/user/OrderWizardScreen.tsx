@@ -113,6 +113,8 @@ export function OrderWizardScreen() {
     step >= 2 ? selectedDate : null,
     undefined,
     eta?.duration_min ?? 30,
+    from?.lat ?? undefined,
+    from?.lon ?? undefined,
   )
 
   // Live suggestions (businesses, landmarks, addresses) as the user types —

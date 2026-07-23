@@ -236,6 +236,79 @@ def test_slot_conflict_on_overlapping_driver_booking(client):
     assert r2.json()["error"]["code"] == "SLOT_CONFLICT"
 
 
+def test_slots_reflect_real_transit_time_from_previous_dropoff(client, monkeypatch):
+    admin_token = _admin_token(client)
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    driver_tokens = _login(client, 1330, "Driver")
+    driver_user_id = driver_tokens["user"]["id"]
+    r = client.patch(
+        f"/v1/admin/users/{driver_user_id}/role", headers=admin_headers, json={"role": "driver"}
+    )
+    assert r.status_code == 200
+    r = client.post(
+        f"/v1/admin/verification-requests/{driver_user_id}/approve", headers=admin_headers
+    )
+    assert r.status_code == 200
+    driver_id = asyncio.run(_get_driver_id(driver_user_id))
+    driver_headers = _auth_header(driver_tokens)
+
+    order_time = dt.datetime.fromisoformat(_future_iso(days=1))
+    weekday = order_time.astimezone(_COMPANY_TZ).weekday()
+    r = client.put(
+        "/v1/drivers/me/schedule",
+        headers=driver_headers,
+        json=[{"weekday": weekday, "start_time": "00:00:00", "end_time": "23:30:00"}],
+    )
+    assert r.status_code == 200
+
+    user_tokens = _verified_user(client, 1331)
+    r = client.post(
+        "/v1/orders",
+        headers=_auth_header(user_tokens),
+        json=_base_body(
+            scheduled_at=order_time.isoformat(),
+            driver_id=driver_id,
+            to_lat=55.0,
+            to_lon=37.0,
+            est_duration_min=30,
+        ),
+    )
+    assert r.status_code == 201
+
+    async def fake_route_eta_seconds(from_lat, from_lon, to_lat, to_lon):
+        return 3600.0, 20000.0  # 60 real minutes — far more than ORDER_BUFFER_MIN
+
+    monkeypatch.setattr("api.app.orders_api.ors_route_eta_seconds", fake_route_eta_seconds)
+
+    date_str = order_time.astimezone(_COMPANY_TZ).date().isoformat()
+    r = client.get(
+        "/v1/orders/slots",
+        headers=_auth_header(user_tokens),
+        params={
+            "date": date_str,
+            "driver_id": driver_id,
+            "duration_min": 30,
+            "from_lat": 60.0,
+            "from_lon": 40.0,
+        },
+    )
+    assert r.status_code == 200
+    times = [dt.datetime.fromisoformat(t) for t in r.json()["times"]]
+
+    order_end = order_time + dt.timedelta(minutes=30)
+    # With the real 60-minute transit time, nothing should be offered until
+    # order_end + 60 real minutes — a flat ORDER_BUFFER_MIN(30) buffer would
+    # have wrongly allowed slots starting as early as order_end + 30min.
+    too_early_cutoff = order_end + dt.timedelta(minutes=60)
+    assert all(t >= too_early_cutoff for t in times), [t.isoformat() for t in times]
+    # Confirm slots do open up right at/after that real cutoff — an all-empty
+    # list would vacuously satisfy the assertion above without proving
+    # anything.
+    assert any(
+        too_early_cutoff <= t < too_early_cutoff + dt.timedelta(minutes=45) for t in times
+    ), [t.isoformat() for t in times]
+
+
 def test_get_order_forbidden_for_other_user(client):
     tokens_a = _verified_user(client, 1311)
     tokens_b = _verified_user(client, 1312)

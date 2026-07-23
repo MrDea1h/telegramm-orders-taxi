@@ -341,10 +341,18 @@ export type OrderTransitionAction =
   | 'complete'
 
 export const orders = {
-  slots: (date: string, driverId?: string, durationMin?: number) => {
+  slots: (
+    date: string,
+    driverId?: string,
+    durationMin?: number,
+    fromLat?: number,
+    fromLon?: number,
+  ) => {
     const params = new URLSearchParams({ date })
     if (driverId) params.set('driver_id', driverId)
     if (durationMin) params.set('duration_min', String(durationMin))
+    if (fromLat != null) params.set('from_lat', String(fromLat))
+    if (fromLon != null) params.set('from_lon', String(fromLon))
     return apiFetch<SlotsResult>(`/v1/orders/slots?${params.toString()}`, { auth: true })
   },
 

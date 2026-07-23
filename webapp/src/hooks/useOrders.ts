@@ -21,10 +21,12 @@ export function useSlots(
   date: string | null,
   driverId: string | undefined,
   durationMin: number | undefined,
+  fromLat?: number,
+  fromLon?: number,
 ) {
   return useQuery({
-    queryKey: ['orders', 'slots', date, driverId, durationMin],
-    queryFn: () => orders.slots(date!, driverId, durationMin),
+    queryKey: ['orders', 'slots', date, driverId, durationMin, fromLat, fromLon],
+    queryFn: () => orders.slots(date!, driverId, durationMin, fromLat, fromLon),
     enabled: !!date,
   })
 }

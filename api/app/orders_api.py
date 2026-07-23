@@ -18,6 +18,7 @@ from shared.config import get_settings
 from shared.db.engine import get_session
 from shared.db.models import Address, Driver, DriverSchedule, DriverTimeOff, Order, OrderEvent, User
 from shared.drivers import get_or_create_own_driver
+from shared.openrouteservice import route_eta_seconds as ors_route_eta_seconds
 from shared.slots import compute_slots
 
 router = APIRouter(prefix="/v1/orders", tags=["orders"])
@@ -198,11 +199,31 @@ async def _touch_address(
         )
 
 
+async def _driver_gap_buffer_min(
+    order: Order, from_lat: float | None, from_lon: float | None, settings
+) -> int:
+    """Minutes to leave free after `order` before a new pickup at
+    (from_lat, from_lon) — the real drive time from that order's own
+    drop-off point when we can compute it, never less than the flat
+    ORDER_BUFFER_MIN floor. Falls back to the flat value whenever either
+    endpoint's coordinates are missing or the ORS call fails, exactly like
+    every other real-routing call in this codebase."""
+    if from_lat is None or from_lon is None or order.to_lat is None or order.to_lon is None:
+        return settings.ORDER_BUFFER_MIN
+    result = await ors_route_eta_seconds(order.to_lat, order.to_lon, from_lat, from_lon)
+    if result is None:
+        return settings.ORDER_BUFFER_MIN
+    transit_seconds, _distance_meters = result
+    return max(round(transit_seconds / 60), settings.ORDER_BUFFER_MIN)
+
+
 @router.get("/slots", response_model=SlotsOut)
 async def get_slots(
     date: dt.date = Query(...),
     driver_id: uuid.UUID | None = Query(default=None),
     duration_min: int = Query(default=30, ge=1),
+    from_lat: float | None = Query(default=None),
+    from_lon: float | None = Query(default=None),
     _user: User = Depends(require_verified),
     session: AsyncSession = Depends(get_session),
 ) -> SlotsOut:
@@ -294,9 +315,8 @@ async def get_slots(
             .all()
         )
         for o in order_rows:
-            busy_end = o.scheduled_at + dt.timedelta(
-                minutes=o.est_duration_min + settings.ORDER_BUFFER_MIN
-            )
+            gap_min = await _driver_gap_buffer_min(o, from_lat, from_lon, settings)
+            busy_end = o.scheduled_at + dt.timedelta(minutes=o.est_duration_min + gap_min)
             busy_ranges.append((o.scheduled_at, busy_end))
 
         slots = compute_slots(
