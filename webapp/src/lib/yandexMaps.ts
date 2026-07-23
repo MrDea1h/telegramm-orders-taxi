@@ -1,15 +1,16 @@
 /**
- * Thin wrapper around the Yandex Maps JavaScript API's multiRouter module —
- * real driving routes (distance + duration, with traffic) computed in the
- * browser, since our available Yandex products don't include a standalone
- * server-side routing/distance-matrix API. Route points can be plain
- * address text or [lat, lon] pairs; multiRouter resolves addresses itself.
+ * Thin wrapper around the Yandex Maps JavaScript API's headless routing
+ * helper — real driving routes (distance + duration, with traffic) computed
+ * in the browser, since our available Yandex products don't include a
+ * standalone server-side routing/distance-matrix API. Route points can be
+ * plain address text or [lat, lon] pairs; Yandex resolves addresses itself.
  *
- * NOT YET VERIFIED against a live API key (none exists at the time this was
- * written) — the general shape (MultiRoute, 'requestsuccess'/'requestfail'
- * events, properties.get('distance'|'duration'|'durationInTraffic').value)
- * matches the documented JS API v2.1 contract, but re-check against a real
- * key before relying on this in production.
+ * Uses `ymaps.route()`, NOT `multiRouter.MultiRoute` — MultiRoute only ever
+ * issues its request once added to a live `ymaps.Map` instance (it's a map
+ * overlay object), so building one without a map silently never fires
+ * 'requestsuccess'/'requestfail' and hangs forever. `ymaps.route()` is
+ * Yandex's documented headless variant, meant exactly for "get route info,
+ * don't render it" — no map required.
  *
  * Renders nothing without VITE_YANDEX_MAPS_API_KEY set — every caller must
  * treat a null return as "fall back to the backend's haversine estimate",
@@ -22,29 +23,19 @@ declare global {
   }
 }
 
-interface YmapsRouteProperties {
-  get(key: 'distance' | 'duration' | 'durationInTraffic'): { value: number } | undefined
-}
-
-interface YmapsMultiRoute {
-  model: {
-    events: {
-      add(event: 'requestsuccess' | 'requestfail', handler: () => void): void
-    }
-  }
-  getActiveRoute(): { properties: YmapsRouteProperties } | null
+interface YmapsRouteModel {
+  getLength(): number
+  getJamsTime?(): number
+  getTime(): number
 }
 
 interface YmapsNamespace {
   ready(callback: () => void): void
-  multiRouter: {
-    MultiRoute: new (
-      params: {
-        referencePoints: (string | [number, number])[]
-        params?: { routingMode?: 'auto' | 'masstransit' | 'pedestrian' | 'bicycle' }
-      },
-      options?: { boundsAutoApply?: boolean },
-    ) => YmapsMultiRoute
+  route(
+    points: (string | [number, number])[],
+    options?: { mapStateAutoApply?: boolean; routingMode?: 'auto' | 'masstransit' | 'pedestrian' | 'bicycle' },
+  ): {
+    then(onResolve: (route: YmapsRouteModel) => void, onReject: (error: unknown) => void): void
   }
 }
 
@@ -57,7 +48,10 @@ function loadYandexMaps(): Promise<YmapsNamespace> | null {
   if (!loadPromise) {
     loadPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script')
-      script.src = `https://api-maps.yandex.ru/2.1/?apikey=${apiKey}&lang=ru_RU`
+      // load=package.full guarantees the 'route' helper module is present —
+      // the default bundle's module set isn't part of any documented
+      // stability contract, so don't rely on it including 'route'.
+      script.src = `https://api-maps.yandex.ru/2.1/?apikey=${apiKey}&lang=ru_RU&load=package.full`
       script.async = true
       script.onload = () => {
         if (!window.ymaps) {
@@ -78,6 +72,8 @@ export interface RouteEtaResult {
   distanceKm: number
 }
 
+const ROUTE_TIMEOUT_MS = 8000
+
 export async function computeRouteEta(
   from: string | [number, number],
   to: string | [number, number],
@@ -85,30 +81,39 @@ export async function computeRouteEta(
   const ymapsPromise = loadYandexMaps()
   if (!ymapsPromise) return null
 
-  const ymaps = await ymapsPromise.catch(() => null)
+  const ymaps = await ymapsPromise.catch((error) => {
+    console.warn('[yandexMaps] failed to load JS API', error)
+    return null
+  })
   if (!ymaps) return null
 
-  return new Promise((resolve) => {
-    const multiRoute = new ymaps.multiRouter.MultiRoute(
-      { referencePoints: [from, to], params: { routingMode: 'auto' } },
-      { boundsAutoApply: false },
-    )
-
-    multiRoute.model.events.add('requestsuccess', () => {
-      const activeRoute = multiRoute.getActiveRoute()
-      const distanceMeters = activeRoute?.properties.get('distance')?.value
-      const durationSeconds =
-        activeRoute?.properties.get('durationInTraffic')?.value ??
-        activeRoute?.properties.get('duration')?.value
-      if (distanceMeters == null || durationSeconds == null) {
+  const routePromise = new Promise<RouteEtaResult | null>((resolve) => {
+    ymaps.route([from, to], { mapStateAutoApply: false, routingMode: 'auto' }).then(
+      (route) => {
+        const distanceMeters = route.getLength()
+        const durationSeconds = route.getJamsTime?.() ?? route.getTime()
+        if (distanceMeters == null || durationSeconds == null) {
+          resolve(null)
+          return
+        }
+        resolve({
+          durationMin: Math.round(durationSeconds / 60),
+          distanceKm: Math.round((distanceMeters / 1000) * 10) / 10,
+        })
+      },
+      (error) => {
+        console.warn('[yandexMaps] ymaps.route() rejected', error)
         resolve(null)
-        return
-      }
-      resolve({
-        durationMin: Math.round(durationSeconds / 60),
-        distanceKm: Math.round((distanceMeters / 1000) * 10) / 10,
-      })
-    })
-    multiRoute.model.events.add('requestfail', () => resolve(null))
+      },
+    )
   })
+
+  const timeoutPromise = new Promise<null>((resolve) => {
+    setTimeout(() => {
+      console.warn('[yandexMaps] ymaps.route() timed out after', ROUTE_TIMEOUT_MS, 'ms')
+      resolve(null)
+    }, ROUTE_TIMEOUT_MS)
+  })
+
+  return Promise.race([routePromise, timeoutPromise])
 }

@@ -35,7 +35,7 @@ export function HomeScreen() {
   return (
     <div className="flex h-full flex-col overflow-y-auto pb-28">
       <div className="bg-gradient-to-br from-primary to-secondary px-5 pb-8 pt-6 text-white">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <p className="text-[13px] text-white/80">Добрый день,</p>
             <h1 className="truncate text-[20px] font-semibold">{givenName ?? 'Коллега'}</h1>

@@ -64,7 +64,7 @@ export function DriverTodayScreen() {
   return (
     <div className="flex h-full flex-col bg-[var(--tg-bg)]">
       <div className="border-b border-[var(--tg-border)] px-4 py-3">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h1 className="text-[17px] font-semibold text-[var(--tg-text)]">Сегодня</h1>
             <p className="truncate text-[12px] text-[var(--tg-text-secondary)]">
