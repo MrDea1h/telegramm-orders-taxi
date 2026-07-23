@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { TopBar } from '../../components/ui/TopBar'
@@ -10,6 +10,7 @@ import { SuccessCheck } from '../../components/ui/SuccessCheck'
 import { Avatar } from '../../components/ui/Avatar'
 import { ApiError, routing, type Address } from '../../lib/api'
 import { geocodeAddress, reverseGeocode } from '../../lib/yandexGeocoder'
+import { fetchSuggestions, type Suggestion } from '../../lib/yandexSuggest'
 import { MapAddressPicker } from '../../components/MapAddressPicker'
 import { useFavoriteAddresses, useRecentAddresses, useTouchAddress } from '../../hooks/useAddresses'
 import { useDrivers } from '../../hooks/useDrivers'
@@ -62,6 +63,7 @@ export function OrderWizardScreen() {
   // point gets pinned, not just a fallback for a failed lookup.
   const [geocodeStatus, setGeocodeStatus] = useState<'idle' | 'loading' | 'refining'>('idle')
   const [mapResolvedLabel, setMapResolvedLabel] = useState<string | null>(null)
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()))
   const [slotTime, setSlotTime] = useState<string | null>(null)
   const [driverChoice, setDriverChoice] = useState<'any' | string>('any')
@@ -99,6 +101,26 @@ export function OrderWizardScreen() {
     undefined,
     eta?.duration_min ?? 30,
   )
+
+  // Live suggestions (businesses, landmarks, addresses) as the user types —
+  // debounced so we're not firing a request per keystroke. Only while
+  // actively typing a new address; hidden once geocoding starts/finishes.
+  useEffect(() => {
+    if (geocodeStatus !== 'idle' || !addressQuery.trim()) {
+      setSuggestions([])
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(() => {
+      fetchSuggestions(addressQuery.trim()).then((results) => {
+        if (!cancelled) setSuggestions(results)
+      })
+    }, 300)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [addressQuery, geocodeStatus])
 
   const horizonDays = slots?.booking_horizon_days ?? 14
   const dayOptions = useMemo(
@@ -145,6 +167,27 @@ export function OrderWizardScreen() {
     // Always land on the map for a final refinement tap, whether the
     // address resolved automatically or not — see the geocodeStatus
     // field's own comment for why.
+    setGeocodeStatus('refining')
+  }
+
+  async function handleSelectSuggestion(suggestion: Suggestion) {
+    setAddressQuery(suggestion.title)
+    setSuggestions([])
+    setGeocodeStatus('loading')
+    // Geocode the address portion, never the business/place name itself —
+    // the plain Geocoder ignores business names entirely and matches only
+    // the city (verified directly), so this is the only combination that
+    // reliably resolves a suggestion like a restaurant or shop.
+    const result = await geocodeAddress(suggestion.addressText)
+    if (result) {
+      setPickedCoords(result.coords)
+      setMapInitialCenter(result.coords)
+      setMapResolvedLabel(suggestion.title)
+    } else {
+      setPickedCoords(null)
+      setMapInitialCenter(null)
+      setMapResolvedLabel(null)
+    }
     setGeocodeStatus('refining')
   }
 
@@ -286,20 +329,38 @@ export function OrderWizardScreen() {
                   {addressQuery.trim() ? (
                     <div className="flex flex-col gap-3">
                       {geocodeStatus !== 'refining' ? (
-                        <button
-                          disabled={geocodeStatus === 'loading'}
-                          onClick={handleUseTypedAddress}
-                          className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-center text-[13px] font-medium text-primary active:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {geocodeStatus === 'loading' ? (
-                            <>
-                              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                              Ищем «{addressQuery.trim()}»…
-                            </>
-                          ) : (
-                            <>Использовать «{addressQuery.trim()}»</>
+                        <>
+                          {suggestions.length > 0 && (
+                            <div className="flex flex-col gap-1">
+                              {suggestions.map((s, i) => (
+                                <button
+                                  key={`${s.title}-${i}`}
+                                  onClick={() => handleSelectSuggestion(s)}
+                                  className="flex flex-col items-start rounded-xl px-2 py-2 text-left active:bg-black/5 dark:active:bg-white/5"
+                                >
+                                  <span className="text-[13px] font-medium text-[var(--tg-text)]">{s.title}</span>
+                                  <span className="truncate text-[11px] text-[var(--tg-text-secondary)]">
+                                    {s.subtitle}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
                           )}
-                        </button>
+                          <button
+                            disabled={geocodeStatus === 'loading'}
+                            onClick={handleUseTypedAddress}
+                            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-center text-[13px] font-medium text-primary active:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {geocodeStatus === 'loading' ? (
+                              <>
+                                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                                Ищем «{addressQuery.trim()}»…
+                              </>
+                            ) : (
+                              <>Использовать «{addressQuery.trim()}» как есть</>
+                            )}
+                          </button>
+                        </>
                       ) : (
                         <>
                           {!pickedCoords && !mapInitialCenter && (

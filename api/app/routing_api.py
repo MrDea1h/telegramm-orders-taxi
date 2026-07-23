@@ -66,10 +66,11 @@ async def eta(body: EtaRequest, _user: User = Depends(require_verified)) -> EtaO
             duration_min=duration_min, distance_km=distance_km, is_estimated=False, source="real"
         )
 
-    # Fallback formula, tz.md §4.3: avg 30 km/h with a 1.4x margin, labeled
-    # as an estimate rather than a precise figure.
+    # Fallback formula, tz.md §4.3: avg 30 km/h, same margin factor as the
+    # real-route branch above, labeled as an estimate rather than a precise
+    # figure.
     distance_km = round(haversine_km(from_lat, from_lon, to_lat, to_lon), 1)
-    duration_min = round(distance_km / 30 * 60 * 1.4)
+    duration_min = round(distance_km / 30 * 60 * settings.ORDER_ETA_BUFFER_FACTOR)
     return EtaOut(
         duration_min=duration_min, distance_km=distance_km, is_estimated=True, source="fallback"
     )
