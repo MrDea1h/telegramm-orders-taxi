@@ -18,3 +18,18 @@ export function useSetDuty() {
     },
   })
 }
+
+export function useMySchedule() {
+  return useQuery({ queryKey: ['drivers', 'me', 'schedule'], queryFn: drivers.mySchedule })
+}
+
+export function useSetMySchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (windows: { weekday: number; start_time: string; end_time: string }[]) =>
+      drivers.setMySchedule(windows),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['drivers', 'me', 'schedule'] })
+    },
+  })
+}

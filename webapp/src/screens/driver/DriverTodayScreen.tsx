@@ -13,7 +13,18 @@ import type { OrderStatus } from '../../data/types'
 import type { OrderTransitionAction } from '../../lib/api'
 import { useDriverQueue, useTransitionOrder } from '../../hooks/useOrders'
 import { useMyDriverProfile, useSetDuty } from '../../hooks/useDrivers'
+import { useAppStore } from '../../store/appStore'
 import { haptics } from '../../lib/haptics'
+
+function ScheduleIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="4" width="18" height="17" rx="3" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M3 9h18" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M8 2v4M16 2v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
 
 const nextAction: Partial<Record<OrderStatus, { label: string; action: OrderTransitionAction }>> = {
   pending_driver: { label: 'Принять', action: 'accept' },
@@ -33,6 +44,7 @@ function QueueEmptyIcon() {
 }
 
 export function DriverTodayScreen() {
+  const goToDriverScreen = useAppStore((s) => s.goToDriverScreen)
   const { data: queue, refetch: refetchQueue } = useDriverQueue()
   const { data: profile } = useMyDriverProfile()
   const setDuty = useSetDuty()
@@ -85,6 +97,16 @@ export function DriverTodayScreen() {
             >
               <span className={`h-2 w-2 rounded-full ${available ? 'bg-success' : 'bg-neutral-400'}`} />
               {available ? 'На линии' : 'Недоступен'}
+            </button>
+            <button
+              onClick={() => {
+                haptics.selection()
+                goToDriverScreen('schedule')
+              }}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--tg-text-secondary)] active:bg-black/5 dark:active:bg-white/10"
+              aria-label="Мой график"
+            >
+              <ScheduleIcon />
             </button>
             <LogoutButton />
           </div>

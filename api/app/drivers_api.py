@@ -29,7 +29,10 @@ class DriverOut(BaseModel):
 
 
 class ScheduleWindow(BaseModel):
-    weekday: int = Field(ge=0, le=6)
+    # 0-4 (Monday-Friday) only — weekday-only product, hard rule, not a
+    # per-driver preference (see orders_api.py's _is_weekend for the
+    # matching enforcement on the booking side).
+    weekday: int = Field(ge=0, le=4)
     start_time: dt.time
     end_time: dt.time
 

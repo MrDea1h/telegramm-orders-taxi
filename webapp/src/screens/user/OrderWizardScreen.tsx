@@ -31,6 +31,19 @@ function toDateInputValue(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+// Hard rule, not a UI nicety — the backend rejects weekend bookings
+// outright (see api/app/orders_api.py's _is_weekend), so weekend days are
+// left out of the picker entirely rather than shown and then rejected.
+function isWeekday(d: Date): boolean {
+  return d.getDay() !== 0 && d.getDay() !== 6
+}
+
+function firstWeekdayFromToday(): Date {
+  const d = new Date()
+  while (!isWeekday(d)) d.setDate(d.getDate() + 1)
+  return d
+}
+
 function makeSyntheticAddress(addressText: string, coords: [number, number] | null): Address {
   return {
     id: `custom-${addressText}`,
@@ -64,7 +77,7 @@ export function OrderWizardScreen() {
   const [geocodeStatus, setGeocodeStatus] = useState<'idle' | 'loading' | 'refining'>('idle')
   const [mapResolvedLabel, setMapResolvedLabel] = useState<string | null>(null)
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
-  const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()))
+  const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(firstWeekdayFromToday()))
   const [slotTime, setSlotTime] = useState<string | null>(null)
   const [driverChoice, setDriverChoice] = useState<'any' | string>('any')
   const [passengers, setPassengers] = useState(1)
@@ -125,11 +138,13 @@ export function OrderWizardScreen() {
   const horizonDays = slots?.booking_horizon_days ?? 14
   const dayOptions = useMemo(
     () =>
-      Array.from({ length: horizonDays + 1 }).map((_, i) => {
-        const d = new Date()
-        d.setDate(d.getDate() + i)
-        return d
-      }),
+      Array.from({ length: horizonDays + 1 })
+        .map((_, i) => {
+          const d = new Date()
+          d.setDate(d.getDate() + i)
+          return d
+        })
+        .filter(isWeekday),
     [horizonDays],
   )
 

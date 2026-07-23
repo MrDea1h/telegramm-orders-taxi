@@ -137,6 +137,14 @@ def _touch(order: Order) -> None:
     order.updated_at = dt.datetime.now(dt.UTC)
 
 
+def _is_weekend(moment: dt.datetime, tz: dt.tzinfo) -> bool:
+    """Hard business rule, not a per-driver preference: this is a corporate
+    weekday-only product, so Saturday/Sunday are structurally out of scope
+    everywhere a booking time is accepted — regardless of what an
+    individual driver's own DriverSchedule rows might contain."""
+    return moment.astimezone(tz).weekday() >= 5
+
+
 async def serialize_order(order: Order, session: AsyncSession) -> OrderOut:
     out = OrderOut.model_validate(order, from_attributes=True)
     if order.driver_id is not None:
@@ -206,6 +214,15 @@ async def get_slots(
 
     if date < today_local or date > horizon_end:
         raise AppError(400, "OUT_OF_HORIZON", "Requested date is outside the booking horizon")
+
+    if date.weekday() >= 5:
+        # Weekday-only product — no candidate driver, however scheduled,
+        # can ever have a slot on Saturday/Sunday. Skip the DB work entirely.
+        return SlotsOut(
+            times=[],
+            booking_horizon_days=settings.ORDER_BOOKING_HORIZON_DAYS,
+            min_lead_min=settings.ORDER_MIN_LEAD_MIN,
+        )
 
     if driver_id is not None:
         driver = await session.get(Driver, driver_id)
@@ -348,6 +365,8 @@ async def create_order(
         raise AppError(400, "LEAD_TIME_TOO_SHORT", "scheduled_at is too soon")
     if body.scheduled_at > now + dt.timedelta(days=settings.ORDER_BOOKING_HORIZON_DAYS):
         raise AppError(400, "OUT_OF_HORIZON", "scheduled_at is beyond the booking horizon")
+    if _is_weekend(body.scheduled_at, ZoneInfo(settings.COMPANY_TZ)):
+        raise AppError(400, "WEEKEND_NOT_ALLOWED", "Bookings are not available on weekends")
 
     if body.driver_id is not None:
         driver = await session.get(Driver, body.driver_id)
@@ -531,6 +550,8 @@ async def transition_order(
             days=settings.ORDER_BOOKING_HORIZON_DAYS
         ):
             raise AppError(400, "OUT_OF_HORIZON", "Proposed time is beyond the booking horizon")
+        if _is_weekend(body.proposed_scheduled_at, ZoneInfo(settings.COMPANY_TZ)):
+            raise AppError(400, "WEEKEND_NOT_ALLOWED", "Bookings are not available on weekends")
 
     from_status, to_status = _TRANSITIONS[body.action]
     driver_guard = (
