@@ -310,10 +310,11 @@ def test_slots_reflect_real_transit_time_from_previous_dropoff(client, monkeypat
     after_order_times = [t for t in times if t >= order_end]
     assert after_order_times, "expected at least one slot after the existing booking"
 
-    # With the real 60-minute transit time, nothing should be offered until
-    # order_end + 60 real minutes — a flat ORDER_BUFFER_MIN(30) buffer would
-    # have wrongly allowed slots starting as early as order_end + 30min.
-    too_early_cutoff = order_end + dt.timedelta(minutes=60)
+    # With the real 60-minute transit time (+ORDER_REAL_TRANSIT_MARGIN_MIN=10
+    # safety margin on top, see _real_gap_min), nothing should be offered
+    # until order_end + 70 real minutes — a flat ORDER_BUFFER_MIN(30) buffer
+    # would have wrongly allowed slots starting as early as order_end+30min.
+    too_early_cutoff = order_end + dt.timedelta(minutes=70)
     assert all(t >= too_early_cutoff for t in after_order_times), [
         t.isoformat() for t in after_order_times
     ]
@@ -324,6 +325,101 @@ def test_slots_reflect_real_transit_time_from_previous_dropoff(client, monkeypat
         too_early_cutoff <= t < too_early_cutoff + dt.timedelta(minutes=45)
         for t in after_order_times
     ), [t.isoformat() for t in after_order_times]
+
+
+def test_slots_bidirectional_gap_matches_worked_example(client, monkeypatch):
+    # Mirrors a user-supplied worked example exactly: a driver already has a
+    # booking 11:00-12:00 from A to B. A new candidate ride goes from C to D
+    # (duration 20min). Real transit: C->D=20min (the ride itself, not
+    # exercised here), D->A=40min, B->C=60min. With a 10min safety margin on
+    # top of real transit (ORDER_REAL_TRANSIT_MARGIN_MIN), the only legal
+    # candidate windows are ones ending by 10:10 (11:00 - 40min transit -
+    # 10min margin) or starting at/after 13:10 (12:00 + 60min transit +
+    # 10min margin) — this asserts the 30min slot grid produces exactly
+    # that shape (last "before" slot 09:30, first "after" slot 13:30).
+    admin_token = _admin_token(client)
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    driver_tokens = _login(client, 1340, "Driver")
+    driver_user_id = driver_tokens["user"]["id"]
+    r = client.patch(
+        f"/v1/admin/users/{driver_user_id}/role", headers=admin_headers, json={"role": "driver"}
+    )
+    assert r.status_code == 200
+    r = client.post(
+        f"/v1/admin/verification-requests/{driver_user_id}/approve", headers=admin_headers
+    )
+    assert r.status_code == 200
+    driver_id = asyncio.run(_get_driver_id(driver_user_id))
+    driver_headers = _auth_header(driver_tokens)
+
+    next_weekday_local = dt.datetime.now(_COMPANY_TZ) + dt.timedelta(days=1)
+    while next_weekday_local.weekday() >= 5:
+        next_weekday_local += dt.timedelta(days=1)
+    order_time = next_weekday_local.replace(hour=11, minute=0, second=0, microsecond=0)
+    weekday = order_time.weekday()
+    r = client.put(
+        "/v1/drivers/me/schedule",
+        headers=driver_headers,
+        json=[{"weekday": weekday, "start_time": "00:00:00", "end_time": "23:30:00"}],
+    )
+    assert r.status_code == 200
+
+    a_lat, a_lon = 10.0, 10.0
+    b_lat, b_lon = 20.0, 20.0
+    c_lat, c_lon = 30.0, 30.0
+    d_lat, d_lon = 40.0, 40.0
+
+    user_tokens = _verified_user(client, 1341)
+    r = client.post(
+        "/v1/orders",
+        headers=_auth_header(user_tokens),
+        json=_base_body(
+            scheduled_at=order_time.isoformat(),
+            driver_id=driver_id,
+            from_lat=a_lat,
+            from_lon=a_lon,
+            to_lat=b_lat,
+            to_lon=b_lon,
+            est_duration_min=60,
+        ),
+    )
+    assert r.status_code == 201
+
+    async def fake_route_eta_seconds(from_lat, from_lon, to_lat, to_lon):
+        if (from_lat, from_lon, to_lat, to_lon) == (d_lat, d_lon, a_lat, a_lon):
+            return 2400.0, 10000.0  # D -> A = 40 real minutes
+        if (from_lat, from_lon, to_lat, to_lon) == (b_lat, b_lon, c_lat, c_lon):
+            return 3600.0, 10000.0  # B -> C = 60 real minutes
+        raise AssertionError(f"unexpected ORS call {from_lat},{from_lon} -> {to_lat},{to_lon}")
+
+    monkeypatch.setattr("api.app.orders_api.ors_route_eta_seconds", fake_route_eta_seconds)
+
+    date_str = order_time.astimezone(_COMPANY_TZ).date().isoformat()
+    r = client.get(
+        "/v1/orders/slots",
+        headers=_auth_header(user_tokens),
+        params={
+            "date": date_str,
+            "driver_id": driver_id,
+            "duration_min": 20,
+            "from_lat": c_lat,
+            "from_lon": c_lon,
+            "to_lat": d_lat,
+            "to_lon": d_lon,
+        },
+    )
+    assert r.status_code == 200
+    times = [dt.datetime.fromisoformat(t) for t in r.json()["times"]]
+    local_times = {t.astimezone(_COMPANY_TZ).strftime("%H:%M") for t in times}
+
+    # Last legal "before" slot: 09:30 (ends 09:50, safely inside the 10:10
+    # cutoff); 10:00 would end at 10:20, past the cutoff — must be excluded.
+    assert "09:30" in local_times, sorted(local_times)
+    assert "10:00" not in local_times, sorted(local_times)
+
+    # First legal "after" slot: 13:30 (>= 13:10 cutoff); 13:00 is too early.
+    assert "13:00" not in local_times, sorted(local_times)
+    assert "13:30" in local_times, sorted(local_times)
 
 
 def test_get_order_forbidden_for_other_user(client):

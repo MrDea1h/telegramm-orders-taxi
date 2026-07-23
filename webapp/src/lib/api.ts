@@ -347,14 +347,24 @@ export const orders = {
     durationMin?: number,
     fromLat?: number,
     fromLon?: number,
+    toLat?: number,
+    toLon?: number,
   ) => {
     const params = new URLSearchParams({ date })
     if (driverId) params.set('driver_id', driverId)
     if (durationMin) params.set('duration_min', String(durationMin))
     if (fromLat != null) params.set('from_lat', String(fromLat))
     if (fromLon != null) params.set('from_lon', String(fromLon))
+    if (toLat != null) params.set('to_lat', String(toLat))
+    if (toLon != null) params.set('to_lon', String(toLon))
     return apiFetch<SlotsResult>(`/v1/orders/slots?${params.toString()}`, { auth: true })
   },
+
+  notifyApproaching: (id: string) =>
+    apiFetch<{ notified: boolean }>(`/v1/orders/${id}/notify-approaching`, {
+      method: 'POST',
+      auth: true,
+    }),
 
   create: (input: {
     idempotency_key: string

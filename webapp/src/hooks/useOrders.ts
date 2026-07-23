@@ -23,12 +23,18 @@ export function useSlots(
   durationMin: number | undefined,
   fromLat?: number,
   fromLon?: number,
+  toLat?: number,
+  toLon?: number,
 ) {
   return useQuery({
-    queryKey: ['orders', 'slots', date, driverId, durationMin, fromLat, fromLon],
-    queryFn: () => orders.slots(date!, driverId, durationMin, fromLat, fromLon),
+    queryKey: ['orders', 'slots', date, driverId, durationMin, fromLat, fromLon, toLat, toLon],
+    queryFn: () => orders.slots(date!, driverId, durationMin, fromLat, fromLon, toLat, toLon),
     enabled: !!date,
   })
+}
+
+export function useNotifyApproaching() {
+  return useMutation({ mutationFn: (orderId: string) => orders.notifyApproaching(orderId) })
 }
 
 // Polled — the M3 stand-in for M4's eventual push-driven refetch of the

@@ -19,6 +19,14 @@ from shared.db.engine import get_session
 from shared.db.models import Address, Driver, DriverSchedule, DriverTimeOff, Order, OrderEvent, User
 from shared.drivers import get_or_create_own_driver
 from shared.openrouteservice import route_eta_seconds as ors_route_eta_seconds
+from shared.order_notify import (
+    notify_counter_accepted,
+    notify_driver_approaching,
+    notify_driver_departed,
+    notify_order_accepted,
+    notify_order_cancelled,
+    notify_order_rescheduled,
+)
 from shared.slots import compute_slots
 
 router = APIRouter(prefix="/v1/orders", tags=["orders"])
@@ -199,22 +207,27 @@ async def _touch_address(
         )
 
 
-async def _driver_gap_buffer_min(
-    order: Order, from_lat: float | None, from_lon: float | None, settings
+async def _real_gap_min(
+    from_lat: float | None,
+    from_lon: float | None,
+    to_lat: float | None,
+    to_lon: float | None,
+    settings,
 ) -> int:
-    """Minutes to leave free after `order` before a new pickup at
-    (from_lat, from_lon) — the real drive time from that order's own
-    drop-off point when we can compute it, never less than the flat
-    ORDER_BUFFER_MIN floor. Falls back to the flat value whenever either
-    endpoint's coordinates are missing or the ORS call fails, exactly like
-    every other real-routing call in this codebase."""
-    if from_lat is None or from_lon is None or order.to_lat is None or order.to_lon is None:
+    """Real drive time (minutes) from (from_lat, from_lon) to (to_lat,
+    to_lon) plus a small safety margin (ORDER_REAL_TRANSIT_MARGIN_MIN) on
+    top, when we can compute it — never less than the flat ORDER_BUFFER_MIN
+    floor. Falls back to the flat value whenever any endpoint's coordinates
+    are missing or the ORS call fails, exactly like every other
+    real-routing call in this codebase."""
+    if from_lat is None or from_lon is None or to_lat is None or to_lon is None:
         return settings.ORDER_BUFFER_MIN
-    result = await ors_route_eta_seconds(order.to_lat, order.to_lon, from_lat, from_lon)
+    result = await ors_route_eta_seconds(from_lat, from_lon, to_lat, to_lon)
     if result is None:
         return settings.ORDER_BUFFER_MIN
     transit_seconds, _distance_meters = result
-    return max(round(transit_seconds / 60), settings.ORDER_BUFFER_MIN)
+    real_gap = round(transit_seconds / 60) + settings.ORDER_REAL_TRANSIT_MARGIN_MIN
+    return max(real_gap, settings.ORDER_BUFFER_MIN)
 
 
 @router.get("/slots", response_model=SlotsOut)
@@ -224,6 +237,8 @@ async def get_slots(
     duration_min: int = Query(default=30, ge=1),
     from_lat: float | None = Query(default=None),
     from_lon: float | None = Query(default=None),
+    to_lat: float | None = Query(default=None),
+    to_lon: float | None = Query(default=None),
     _user: User = Depends(require_verified),
     session: AsyncSession = Depends(get_session),
 ) -> SlotsOut:
@@ -315,9 +330,30 @@ async def get_slots(
             .all()
         )
         for o in order_rows:
-            gap_min = await _driver_gap_buffer_min(o, from_lat, from_lon, settings)
-            busy_end = o.scheduled_at + dt.timedelta(minutes=o.est_duration_min + gap_min)
-            busy_ranges.append((o.scheduled_at, busy_end))
+            # Two independent real-transit checks against this one existing
+            # booking: can the driver realistically reach ITS pickup after
+            # finishing a new ride ending right before it (gap_before), and
+            # can they realistically reach the NEW ride's pickup after
+            # finishing this one (gap_after)? Both extend the busy window
+            # outward — never shrink it — so a missing coordinate/failed ORS
+            # call always falls back to the flat, more conservative buffer.
+            #
+            # compute_slots() already pads every candidate's own tail by
+            # ORDER_BUFFER_MIN (its `buffer_min` param) before checking for
+            # overlap — that's how the "before" side normally gets its
+            # flat-buffer protection. gap_before must only contribute
+            # whatever real-transit time exceeds that, or a candidate ending
+            # right before this booking would be double-buffered (flat
+            # buffer once from compute_slots' own tail padding, once more
+            # from gap_before) and get pushed earlier than the real
+            # constraint requires. gap_after has no equivalent overlap since
+            # compute_slots never pads a candidate's *start* side.
+            gap_before = await _real_gap_min(to_lat, to_lon, o.from_lat, o.from_lon, settings)
+            gap_after = await _real_gap_min(o.to_lat, o.to_lon, from_lat, from_lon, settings)
+            extra_gap_before = max(0, gap_before - settings.ORDER_BUFFER_MIN)
+            busy_start = o.scheduled_at - dt.timedelta(minutes=extra_gap_before)
+            busy_end = o.scheduled_at + dt.timedelta(minutes=o.est_duration_min + gap_after)
+            busy_ranges.append((busy_start, busy_end))
 
         slots = compute_slots(
             date=date,
@@ -549,6 +585,18 @@ async def cancel_order(
     )
     await session.commit()
     await session.refresh(order)
+
+    if order.driver_id is not None:
+        driver_chat_id = (
+            await session.execute(
+                select(User.telegram_id)
+                .join(Driver, Driver.user_id == User.id)
+                .where(Driver.id == order.driver_id)
+            )
+        ).scalar_one_or_none()
+        if driver_chat_id is not None:
+            await notify_order_cancelled(driver_chat_id, order, "Клиент отменил заказ")
+
     return await serialize_order(order, session)
 
 
@@ -643,6 +691,20 @@ async def transition_order(
     await session.commit()
 
     order = await session.get(Order, order_id)
+
+    owner_chat_id = (
+        await session.execute(select(User.telegram_id).where(User.id == order.user_id))
+    ).scalar_one_or_none()
+    if owner_chat_id is not None:
+        if body.action == "accept":
+            await notify_order_accepted(owner_chat_id, order, user.full_name)
+        elif body.action == "reject":
+            await notify_order_cancelled(owner_chat_id, order, body.reason)
+        elif body.action == "propose_time":
+            await notify_order_rescheduled(owner_chat_id, order)
+        elif body.action == "depart":
+            await notify_driver_departed(owner_chat_id, order)
+
     return await serialize_order(order, session)
 
 
@@ -689,4 +751,54 @@ async def respond_to_counter(
         ) from e
 
     await session.refresh(order)
+
+    if order.driver_id is not None:
+        driver_chat_id = (
+            await session.execute(
+                select(User.telegram_id)
+                .join(Driver, Driver.user_id == User.id)
+                .where(Driver.id == order.driver_id)
+            )
+        ).scalar_one_or_none()
+        if driver_chat_id is not None:
+            if body.accept:
+                await notify_counter_accepted(driver_chat_id, order)
+            else:
+                await notify_order_cancelled(
+                    driver_chat_id, order, "Клиент отклонил предложенное время"
+                )
+
     return await serialize_order(order, session)
+
+
+class ApproachingOut(BaseModel):
+    notified: bool
+
+
+@router.post("/{order_id}/notify-approaching", response_model=ApproachingOut)
+async def notify_approaching(
+    order_id: uuid.UUID,
+    user: User = Depends(require_role("driver", "admin")),
+    session: AsyncSession = Depends(get_session),
+) -> ApproachingOut:
+    """A driver already en route taps this for one heads-up message —
+    "5-10 minutes away" — distinct from the `arrive` transition, which
+    means the driver is physically there already."""
+    driver = await get_or_create_own_driver(user, session)
+    if driver is None:
+        raise AppError(404, "NOT_FOUND", "No driver profile for this account")
+
+    order = await session.get(Order, order_id)
+    if order is None or order.driver_id != driver.id:
+        raise AppError(404, "NOT_FOUND", "Order not found")
+    if order.status != "driver_en_route":
+        raise AppError(409, "INVALID_TRANSITION", "Driver must be en route to notify approaching")
+
+    owner_chat_id = (
+        await session.execute(select(User.telegram_id).where(User.id == order.user_id))
+    ).scalar_one_or_none()
+    if owner_chat_id is None:
+        return ApproachingOut(notified=False)
+
+    await notify_driver_approaching(owner_chat_id, order)
+    return ApproachingOut(notified=True)

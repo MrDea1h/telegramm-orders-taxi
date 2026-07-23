@@ -114,8 +114,8 @@ def _make_driver(client, telegram_id: int) -> tuple[dict, str]:
     return tokens, driver_id
 
 
-def _create_order(client, tokens: dict, driver_id: str | None = None) -> dict:
-    scheduled_at = _next_business_datetime(2).isoformat()
+def _create_order(client, tokens: dict, driver_id: str | None = None, days: int = 2) -> dict:
+    scheduled_at = _next_business_datetime(days).isoformat()
     body = {
         "idempotency_key": str(uuid.uuid4()),
         "from_address": "A",
@@ -124,7 +124,7 @@ def _create_order(client, tokens: dict, driver_id: str | None = None) -> dict:
         "driver_id": driver_id,
     }
     r = client.post("/v1/orders", headers=_auth_header(tokens), json=body)
-    assert r.status_code == 201
+    assert r.status_code == 201, r.json()
     return r.json()
 
 
@@ -189,6 +189,51 @@ def test_illegal_transition_returns_409_with_current_status(client):
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "INVALID_TRANSITION"
     assert "pending_driver" in r.json()["error"]["message"]
+
+
+def test_transition_and_cancel_send_telegram_notifications(client, monkeypatch):
+    sent: list[tuple[int, str]] = []
+
+    async def fake_send_message(chat_id, text, reply_markup=None):
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr("shared.order_notify.send_message", fake_send_message)
+
+    user_telegram_id = 1410
+    user_tokens = _verified_user(client, user_telegram_id)
+    driver_tokens, driver_id = _make_driver(client, 1411)
+    order = _create_order(client, user_tokens, driver_id=driver_id)
+
+    r = _transition(client, driver_tokens, order["id"], "accept")
+    assert r.status_code == 200
+    assert any(chat_id == user_telegram_id and "принят" in text for chat_id, text in sent), sent
+
+    sent.clear()
+    r = _transition(client, driver_tokens, order["id"], "depart")
+    assert r.status_code == 200
+    assert any(chat_id == user_telegram_id and "выехал" in text for chat_id, text in sent), sent
+
+    sent.clear()
+    r = client.post(
+        f"/v1/orders/{order['id']}/notify-approaching", headers=_auth_header(driver_tokens)
+    )
+    assert r.status_code == 200
+    assert r.json()["notified"] is True
+    assert any(
+        chat_id == user_telegram_id and "5" in text and "10" in text for chat_id, text in sent
+    ), sent
+
+    # A user-initiated cancel on a second, already-accepted order must
+    # notify the assigned driver, not the user themself. days=2 vs days=9 —
+    # a full week apart — so the Mon-Fri bump in _next_business_datetime
+    # (which can shift a weekend-landing offset by up to 2 days) can never
+    # coincidentally collapse both onto the same calendar day.
+    order2 = _create_order(client, user_tokens, driver_id=driver_id, days=9)
+    assert _transition(client, driver_tokens, order2["id"], "accept").status_code == 200
+    sent.clear()
+    r = client.post(f"/v1/orders/{order2['id']}/cancel", headers=_auth_header(user_tokens), json={})
+    assert r.status_code == 200
+    assert any(chat_id == 1411 and "отмен" in text for chat_id, text in sent), sent
 
 
 def test_concurrent_accept_race_only_one_wins(client):

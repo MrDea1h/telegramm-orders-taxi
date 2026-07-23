@@ -115,6 +115,8 @@ export function OrderWizardScreen() {
     eta?.duration_min ?? 30,
     from?.lat ?? undefined,
     from?.lon ?? undefined,
+    to?.lat ?? undefined,
+    to?.lon ?? undefined,
   )
 
   // Live suggestions (businesses, landmarks, addresses) as the user types —

@@ -11,7 +11,7 @@ import { formatDateShort, formatTime, shortenAddress } from '../../lib/format'
 import { yandexNavigationUrl } from '../../lib/mapsLink'
 import type { OrderStatus } from '../../data/types'
 import type { OrderTransitionAction } from '../../lib/api'
-import { useDriverQueue, useTransitionOrder } from '../../hooks/useOrders'
+import { useDriverQueue, useNotifyApproaching, useTransitionOrder } from '../../hooks/useOrders'
 import { useMyDriverProfile, useSetDuty } from '../../hooks/useDrivers'
 import { useAppStore } from '../../store/appStore'
 import { haptics } from '../../lib/haptics'
@@ -66,13 +66,27 @@ export function DriverTodayScreen() {
   const { data: profile } = useMyDriverProfile()
   const setDuty = useSetDuty()
   const transition = useTransitionOrder()
+  const notifyApproaching = useNotifyApproaching()
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
   const [proposingId, setProposingId] = useState<string | null>(null)
   const [proposedTime, setProposedTime] = useState('')
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [approachingSentId, setApproachingSentId] = useState<string | null>(null)
 
   const available = profile?.on_duty ?? true
+
+  async function handleNotifyApproaching(orderId: string) {
+    haptics.impact('medium')
+    try {
+      await notifyApproaching.mutateAsync(orderId)
+      haptics.notification('success')
+      setApproachingSentId(orderId)
+      setTimeout(() => setApproachingSentId((current) => (current === orderId ? null : current)), 3000)
+    } catch {
+      haptics.notification('error')
+    }
+  }
 
   async function handleCopyAddress(key: string, address: string) {
     haptics.selection()
@@ -329,6 +343,18 @@ export function DriverTodayScreen() {
                                 Другое время
                               </Button>
                             </>
+                          )}
+                          {order.status === 'driver_en_route' && (
+                            <Button
+                              variant="secondary"
+                              size="md"
+                              full
+                              className="!text-[12px]"
+                              disabled={notifyApproaching.isPending}
+                              onClick={() => handleNotifyApproaching(order.id)}
+                            >
+                              {approachingSentId === order.id ? 'Клиент уведомлён ✓' : 'Подъезжаю'}
+                            </Button>
                           )}
                           <Button size="md" full onClick={() => handleTransition(order.id, action.action)}>
                             {action.label}

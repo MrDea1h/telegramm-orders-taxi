@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # the DB's own order_busy_range() function (the real EXCLUDE-constraint
     # source of truth) in sync with this advisory value.
     ORDER_BUFFER_MIN: int = 30
+    # Extra safety cushion added on top of a *real* ORS transit estimate
+    # between two bookings (see api/app/orders_api.py::_real_gap_min) — real
+    # drive time alone is treated as optimistic-case, not accounting for
+    # traffic/parking/walk-to-door, so a small fixed margin rides on top of
+    # it. Deliberately much smaller than ORDER_BUFFER_MIN, which is the
+    # fallback for when we have no real transit estimate at all.
+    ORDER_REAL_TRANSIT_MARGIN_MIN: int = 10
     # Wall-clock basis for driver-schedule/slot math — DriverSchedule.weekday
     # and start_time/end_time are naive local-time values, this is how they
     # get anchored to real UTC instants.

@@ -71,11 +71,7 @@ export function HomeScreen() {
             >
               <div className="cursor-pointer p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <p className="text-[13px] font-medium text-[var(--tg-text-secondary)]">
-                    {AWAITING_CHANGE_STATUSES.has(nextOrder.status)
-                      ? 'Требует вашего внимания'
-                      : 'Ближайшая поездка'}
-                  </p>
+                  <p className="text-[13px] font-medium text-[var(--tg-text-secondary)]">Ближайшая поездка</p>
                   <StatusBadge status={nextOrder.status} />
                 </div>
                 <RouteMap compact />
