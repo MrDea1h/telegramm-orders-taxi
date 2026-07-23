@@ -116,10 +116,19 @@ def _create_order(client, tokens: dict, driver_id: str | None = None) -> dict:
     return r.json()
 
 
-def _transition(client, driver_tokens: dict, order_id: str, action: str, reason: str | None = None):
+def _transition(
+    client,
+    driver_tokens: dict,
+    order_id: str,
+    action: str,
+    reason: str | None = None,
+    proposed_scheduled_at: str | None = None,
+):
     body = {"action": action}
     if reason is not None:
         body["reason"] = reason
+    if proposed_scheduled_at is not None:
+        body["proposed_scheduled_at"] = proposed_scheduled_at
     return client.post(
         f"/v1/orders/{order_id}/transition", headers=_auth_header(driver_tokens), json=body
     )
@@ -216,3 +225,99 @@ def test_admin_can_accept_and_advance_an_order_as_driver(client):
     r = _transition(client, admin_tokens, order["id"], "depart")
     assert r.status_code == 200
     assert r.json()["status"] == "driver_en_route"
+
+
+def _future_iso(days: int) -> str:
+    return (dt.datetime.now(dt.UTC) + dt.timedelta(days=days)).isoformat()
+
+
+def test_propose_time_requires_a_specific_driver(client):
+    user_tokens = _verified_user(client, 1414)
+    driver_tokens, _driver_id = _make_driver(client, 1415)
+    order = _create_order(client, user_tokens, driver_id=None)  # "any driver"
+
+    r = _transition(
+        client, driver_tokens, order["id"], "propose_time", proposed_scheduled_at=_future_iso(3)
+    )
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "INVALID_TRANSITION"
+
+
+def test_propose_time_requires_the_field(client):
+    user_tokens = _verified_user(client, 1416)
+    driver_tokens, driver_id = _make_driver(client, 1417)
+    order = _create_order(client, user_tokens, driver_id=driver_id)
+
+    r = _transition(client, driver_tokens, order["id"], "propose_time")
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "PROPOSED_TIME_REQUIRED"
+
+
+def test_employee_accepts_proposed_time(client):
+    user_tokens = _verified_user(client, 1418)
+    driver_tokens, driver_id = _make_driver(client, 1419)
+    order = _create_order(client, user_tokens, driver_id=driver_id)
+    new_time = _future_iso(3)
+
+    r = _transition(
+        client, driver_tokens, order["id"], "propose_time", proposed_scheduled_at=new_time
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "driver_countered"
+    assert r.json()["proposed_scheduled_at"] is not None
+
+    r = client.post(
+        f"/v1/orders/{order['id']}/counter",
+        headers=_auth_header(user_tokens),
+        json={"accept": True},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "confirmed"
+    assert body["proposed_scheduled_at"] is None
+    assert body["scheduled_at"] == new_time or body["scheduled_at"].startswith(new_time[:19])
+
+
+def test_employee_declines_proposed_time_cancels_order(client):
+    user_tokens = _verified_user(client, 1420)
+    driver_tokens, driver_id = _make_driver(client, 1421)
+    order = _create_order(client, user_tokens, driver_id=driver_id)
+
+    r = _transition(
+        client, driver_tokens, order["id"], "propose_time", proposed_scheduled_at=_future_iso(3)
+    )
+    assert r.status_code == 200
+
+    r = client.post(
+        f"/v1/orders/{order['id']}/counter",
+        headers=_auth_header(user_tokens),
+        json={"accept": False},
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "cancelled_by_user"
+
+    # Only the order's own owner can respond, and only while awaiting one.
+    r = client.post(
+        f"/v1/orders/{order['id']}/counter",
+        headers=_auth_header(user_tokens),
+        json={"accept": True},
+    )
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "INVALID_TRANSITION"
+
+
+def test_counter_response_forbidden_for_other_user(client):
+    user_tokens = _verified_user(client, 1422)
+    other_tokens = _verified_user(client, 1423)
+    driver_tokens, driver_id = _make_driver(client, 1424)
+    order = _create_order(client, user_tokens, driver_id=driver_id)
+    _transition(
+        client, driver_tokens, order["id"], "propose_time", proposed_scheduled_at=_future_iso(3)
+    )
+
+    r = client.post(
+        f"/v1/orders/{order['id']}/counter",
+        headers=_auth_header(other_tokens),
+        json={"accept": True},
+    )
+    assert r.status_code == 404

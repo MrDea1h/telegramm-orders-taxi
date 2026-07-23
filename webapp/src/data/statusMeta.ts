@@ -9,6 +9,7 @@ export interface StatusMeta {
 export const statusMeta: Record<OrderStatus, StatusMeta> = {
   draft: { label: 'Черновик', color: '#6b6376', bg: '#f2f1f5' },
   pending_driver: { label: 'Ищем водителя', color: '#f59e0b', bg: '#fef3c7' },
+  driver_countered: { label: 'Водитель предложил другое время', color: '#f59e0b', bg: '#fef3c7' },
   confirmed: { label: 'Подтверждено', color: '#3b82f6', bg: '#dbeafe' },
   driver_en_route: { label: 'Водитель в пути', color: '#7c3aed', bg: '#ede9fe' },
   driver_arrived: { label: 'Водитель на месте', color: '#7c3aed', bg: '#ede9fe' },

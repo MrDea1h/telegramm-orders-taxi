@@ -163,7 +163,7 @@ class AdminCancelRequest(BaseModel):
     reason: str
 
 
-ADMIN_REASSIGNABLE_STATUSES = ("pending_driver", "confirmed", "driver_en_route")
+ADMIN_REASSIGNABLE_STATUSES = ("pending_driver", "driver_countered", "confirmed", "driver_en_route")
 
 
 async def _serialize_admin(order: Order, session: AsyncSession) -> AdminOrderOut:

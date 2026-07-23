@@ -30,6 +30,7 @@ const TERMINAL_STATUSES: OrderStatus[] = [
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'Все статусы' },
   { value: 'pending_driver', label: 'Ожидает водителя' },
+  { value: 'driver_countered', label: 'Предложено другое время' },
   { value: 'confirmed', label: 'Подтверждён' },
   { value: 'driver_en_route', label: 'Водитель едет' },
   { value: 'driver_arrived', label: 'Водитель на месте' },

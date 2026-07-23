@@ -73,11 +73,22 @@ export function useTransitionOrder() {
       id,
       action,
       reason,
+      proposedScheduledAt,
     }: {
       id: string
       action: OrderTransitionAction
       reason?: string
-    }) => orders.transition(id, action, reason),
+      proposedScheduledAt?: string
+    }) => orders.transition(id, action, reason, proposedScheduledAt),
+    onSuccess: invalidate,
+  })
+}
+
+export function useRespondToCounter() {
+  const invalidate = useInvalidateOrders()
+  return useMutation({
+    mutationFn: ({ id, accept }: { id: string; accept: boolean }) =>
+      orders.respondToCounter(id, accept),
     onSuccess: invalidate,
   })
 }

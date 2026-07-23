@@ -125,8 +125,8 @@ class Order(Base):
     __tablename__ = "orders"
     __table_args__ = (
         CheckConstraint(
-            "status in ('draft','pending_driver','confirmed','driver_en_route','driver_arrived',"
-            "'in_progress','completed','cancelled_by_user','cancelled_by_driver',"
+            "status in ('draft','pending_driver','driver_countered','confirmed','driver_en_route',"
+            "'driver_arrived','in_progress','completed','cancelled_by_user','cancelled_by_driver',"
             "'cancelled_by_admin','expired')",
             name="status",
         ),
@@ -181,6 +181,10 @@ class Order(Base):
     cancel_reason: Mapped[str | None] = mapped_column(String(255))
     cancelled_by: Mapped[str | None] = mapped_column(String(20))
     idempotency_key: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # Set when a specifically-assigned driver can't make the requested time
+    # and proposes a different one instead of rejecting outright (status
+    # becomes 'driver_countered'); cleared once the employee accepts/declines.
+    proposed_scheduled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class OrderEvent(Base):

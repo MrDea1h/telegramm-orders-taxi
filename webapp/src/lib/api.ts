@@ -318,6 +318,7 @@ export interface Order {
   updated_at: string
   cancel_reason: string | null
   cancelled_by: string | null
+  proposed_scheduled_at: string | null
   driver_full_name: string | null
   driver_car_model: string | null
   driver_car_plate: string | null
@@ -333,6 +334,7 @@ export interface SlotsResult {
 export type OrderTransitionAction =
   | 'accept'
   | 'reject'
+  | 'propose_time'
   | 'depart'
   | 'arrive'
   | 'start'
@@ -373,12 +375,20 @@ export const orders = {
   cancel: (id: string, reason?: string) =>
     apiFetch<Order>(`/v1/orders/${id}/cancel`, { method: 'POST', auth: true, body: { reason } }),
 
-  transition: (id: string, action: OrderTransitionAction, reason?: string) =>
+  transition: (
+    id: string,
+    action: OrderTransitionAction,
+    reason?: string,
+    proposedScheduledAt?: string,
+  ) =>
     apiFetch<Order>(`/v1/orders/${id}/transition`, {
       method: 'POST',
       auth: true,
-      body: { action, reason },
+      body: { action, reason, proposed_scheduled_at: proposedScheduledAt },
     }),
+
+  respondToCounter: (id: string, accept: boolean) =>
+    apiFetch<Order>(`/v1/orders/${id}/counter`, { method: 'POST', auth: true, body: { accept } }),
 
   queue: () => apiFetch<Order[]>('/v1/orders/queue', { auth: true }),
 }

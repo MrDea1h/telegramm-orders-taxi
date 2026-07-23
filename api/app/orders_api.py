@@ -28,6 +28,7 @@ router = APIRouter(prefix="/v1/orders", tags=["orders"])
 NON_TERMINAL_STATUSES = (
     "draft",
     "pending_driver",
+    "driver_countered",
     "confirmed",
     "driver_en_route",
     "driver_arrived",
@@ -41,12 +42,22 @@ TERMINAL_STATUSES = (
     "expired",
 )
 EDITABLE_STATUSES = ("draft", "pending_driver", "confirmed")
-CANCELLABLE_STATUSES = ("draft", "pending_driver", "confirmed", "driver_en_route")
+CANCELLABLE_STATUSES = (
+    "draft",
+    "pending_driver",
+    "driver_countered",
+    "confirmed",
+    "driver_en_route",
+)
 
 # action -> (required_from_status, resulting_to_status)
 _TRANSITIONS: dict[str, tuple[str, str]] = {
     "accept": ("pending_driver", "confirmed"),
     "reject": ("pending_driver", "cancelled_by_driver"),
+    # Only reachable when the order is already assigned to a specific
+    # driver (see the driver_guard below — non-accept actions always
+    # require Order.driver_id == self, "any driver" orders can't match).
+    "propose_time": ("pending_driver", "driver_countered"),
     "depart": ("confirmed", "driver_en_route"),
     "arrive": ("driver_en_route", "driver_arrived"),
     "start": ("driver_arrived", "in_progress"),
@@ -74,6 +85,7 @@ class OrderOut(BaseModel):
     updated_at: dt.datetime
     cancel_reason: str | None
     cancelled_by: str | None
+    proposed_scheduled_at: dt.datetime | None
     driver_full_name: str | None = None
     driver_car_model: str | None = None
     driver_car_plate: str | None = None
@@ -106,8 +118,13 @@ class CancelRequest(BaseModel):
 
 
 class TransitionRequest(BaseModel):
-    action: Literal["accept", "reject", "depart", "arrive", "start", "complete"]
+    action: Literal["accept", "reject", "propose_time", "depart", "arrive", "start", "complete"]
     reason: str | None = None
+    proposed_scheduled_at: dt.datetime | None = None
+
+
+class CounterResponseRequest(BaseModel):
+    accept: bool
 
 
 class SlotsOut(BaseModel):
@@ -503,6 +520,18 @@ async def transition_order(
     if body.action == "reject" and not body.reason:
         raise AppError(400, "REASON_REQUIRED", "A rejection reason is required")
 
+    if body.action == "propose_time":
+        if body.proposed_scheduled_at is None:
+            raise AppError(400, "PROPOSED_TIME_REQUIRED", "A proposed time is required")
+        settings = get_settings()
+        now = dt.datetime.now(dt.UTC)
+        if body.proposed_scheduled_at < now + dt.timedelta(minutes=settings.ORDER_MIN_LEAD_MIN):
+            raise AppError(400, "LEAD_TIME_TOO_SHORT", "Proposed time is too soon")
+        if body.proposed_scheduled_at > now + dt.timedelta(
+            days=settings.ORDER_BOOKING_HORIZON_DAYS
+        ):
+            raise AppError(400, "OUT_OF_HORIZON", "Proposed time is beyond the booking horizon")
+
     from_status, to_status = _TRANSITIONS[body.action]
     driver_guard = (
         or_(Order.driver_id == driver.id, Order.driver_id.is_(None))
@@ -522,6 +551,11 @@ async def transition_order(
             updated_at=dt.datetime.now(dt.UTC),
             cancel_reason=body.reason if body.action == "reject" else Order.cancel_reason,
             cancelled_by="driver" if body.action == "reject" else Order.cancelled_by,
+            proposed_scheduled_at=(
+                body.proposed_scheduled_at
+                if body.action == "propose_time"
+                else Order.proposed_scheduled_at
+            ),
         )
         .returning(Order.id)
     )
@@ -548,10 +582,63 @@ async def transition_order(
             order_id=order_id,
             event_type=f"status_{body.action}",
             actor_id=user.id,
-            payload={"from": from_status, "to": to_status, "reason": body.reason},
+            payload={
+                "from": from_status,
+                "to": to_status,
+                "reason": body.reason,
+                "proposed_scheduled_at": (
+                    body.proposed_scheduled_at.isoformat() if body.proposed_scheduled_at else None
+                ),
+            },
         )
     )
     await session.commit()
 
     order = await session.get(Order, order_id)
+    return await serialize_order(order, session)
+
+
+@router.post("/{order_id}/counter", response_model=OrderOut)
+async def respond_to_counter(
+    order_id: uuid.UUID,
+    body: CounterResponseRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> OrderOut:
+    """The employee's response to a driver's proposed alternative time —
+    accept (order confirmed at the new time) or decline (order cancelled;
+    no further back-and-forth in this flow)."""
+    order = await session.get(Order, order_id)
+    if order is None or order.user_id != user.id:
+        raise AppError(404, "NOT_FOUND", "Order not found")
+    if order.status != "driver_countered":
+        raise AppError(
+            409,
+            "INVALID_TRANSITION",
+            f"Order is currently '{order.status}', not awaiting a response",
+        )
+
+    if body.accept:
+        order.scheduled_at = order.proposed_scheduled_at
+        order.proposed_scheduled_at = None
+        order.status = "confirmed"
+        event_type = "counter_accepted"
+    else:
+        order.status = "cancelled_by_user"
+        order.cancel_reason = "Отклонено предложенное водителем время"
+        order.cancelled_by = "user"
+        order.proposed_scheduled_at = None
+        event_type = "counter_declined"
+    _touch(order)
+
+    session.add(OrderEvent(order_id=order.id, event_type=event_type, actor_id=user.id, payload={}))
+    try:
+        await session.commit()
+    except IntegrityError as e:
+        await session.rollback()
+        raise AppError(
+            409, "SLOT_CONFLICT", "That driver already has an overlapping booking"
+        ) from e
+
+    await session.refresh(order)
     return await serialize_order(order, session)

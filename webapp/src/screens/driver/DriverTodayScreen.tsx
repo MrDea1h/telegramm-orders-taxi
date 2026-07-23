@@ -37,16 +37,25 @@ export function DriverTodayScreen() {
   const transition = useTransitionOrder()
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  const [proposingId, setProposingId] = useState<string | null>(null)
+  const [proposedTime, setProposedTime] = useState('')
 
   const available = profile?.on_duty ?? true
 
-  async function handleTransition(orderId: string, action: OrderTransitionAction, reason?: string) {
+  async function handleTransition(
+    orderId: string,
+    action: OrderTransitionAction,
+    reason?: string,
+    proposedScheduledAt?: string,
+  ) {
     haptics.impact('medium')
     try {
-      await transition.mutateAsync({ id: orderId, action, reason })
+      await transition.mutateAsync({ id: orderId, action, reason, proposedScheduledAt })
       haptics.notification('success')
       setRejectingId(null)
       setRejectReason('')
+      setProposingId(null)
+      setProposedTime('')
     } catch {
       haptics.notification('error')
     }
@@ -146,13 +155,67 @@ export function DriverTodayScreen() {
                           </Button>
                         </div>
                       </div>
+                    ) : proposingId === order.id ? (
+                      <div className="mt-3 flex flex-col gap-2 border-t border-[var(--tg-border)] pt-3">
+                        <input
+                          type="datetime-local"
+                          value={proposedTime}
+                          onChange={(e) => setProposedTime(e.target.value)}
+                          className="h-10 w-full rounded-xl border border-[var(--tg-border)] bg-[var(--tg-bg)] px-3 text-[13px] text-[var(--tg-text)] outline-none focus:border-primary"
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            variant="secondary"
+                            size="md"
+                            full
+                            onClick={() => {
+                              setProposingId(null)
+                              setProposedTime('')
+                            }}
+                          >
+                            Назад
+                          </Button>
+                          <Button
+                            size="md"
+                            full
+                            disabled={!proposedTime}
+                            onClick={() =>
+                              handleTransition(
+                                order.id,
+                                'propose_time',
+                                undefined,
+                                new Date(proposedTime).toISOString(),
+                              )
+                            }
+                          >
+                            Отправить
+                          </Button>
+                        </div>
+                      </div>
                     ) : (
                       action && (
                         <div className="mt-3 flex gap-2 border-t border-[var(--tg-border)] pt-3">
-                          {order.status === 'pending_driver' && (
-                            <Button variant="danger" size="md" full onClick={() => setRejectingId(order.id)}>
-                              Отклонить
-                            </Button>
+                          {order.status === 'pending_driver' && order.driver_id && (
+                            <>
+                              <Button
+                                variant="danger"
+                                size="md"
+                                full
+                                className="!text-[12px]"
+                                onClick={() => setRejectingId(order.id)}
+                              >
+                                Отклонить
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                size="md"
+                                full
+                                className="!text-[12px]"
+                                onClick={() => setProposingId(order.id)}
+                              >
+                                Другое время
+                              </Button>
+                            </>
                           )}
                           <Button size="md" full onClick={() => handleTransition(order.id, action.action)}>
                             {action.label}

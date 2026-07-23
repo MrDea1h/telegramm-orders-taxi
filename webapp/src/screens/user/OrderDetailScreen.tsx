@@ -7,7 +7,7 @@ import { RouteMap } from '../../components/ui/RouteMap'
 import { StatusStepper } from '../../components/ui/StatusStepper'
 import { Avatar } from '../../components/ui/Avatar'
 import { formatDate, formatTime } from '../../lib/format'
-import { useCancelOrder, useOrderDetail, useUpdateOrder } from '../../hooks/useOrders'
+import { useCancelOrder, useOrderDetail, useRespondToCounter, useUpdateOrder } from '../../hooks/useOrders'
 import { useAppStore } from '../../store/appStore'
 import { haptics } from '../../lib/haptics'
 
@@ -17,6 +17,7 @@ export function OrderDetailScreen() {
   const { data: order } = useOrderDetail(selectedOrderId)
   const updateOrder = useUpdateOrder()
   const cancelOrder = useCancelOrder()
+  const respondToCounter = useRespondToCounter()
 
   const [mode, setMode] = useState<'view' | 'edit' | 'cancel'>('view')
   const [comment, setComment] = useState('')
@@ -35,7 +36,8 @@ export function OrderDetailScreen() {
   }
 
   const canModify = order.status === 'draft' || order.status === 'pending_driver' || order.status === 'confirmed'
-  const canCancel = canModify || order.status === 'driver_en_route'
+  const isCountered = order.status === 'driver_countered'
+  const canCancel = canModify || order.status === 'driver_en_route' || isCountered
 
   function startEdit() {
     setComment(order!.comment ?? '')
@@ -55,6 +57,12 @@ export function OrderDetailScreen() {
     closeOrder()
   }
 
+  async function respondToDriverCounter(accept: boolean) {
+    await respondToCounter.mutateAsync({ id: order!.id, accept })
+    haptics.notification('success')
+    if (!accept) closeOrder()
+  }
+
   return (
     <div className="flex h-full flex-col bg-[var(--tg-bg)]">
       <TopBar title="Заказ" onBack={closeOrder} />
@@ -66,6 +74,30 @@ export function OrderDetailScreen() {
           <Card className="p-4">
             <StatusStepper status={order.status} />
           </Card>
+
+          {isCountered && order.proposed_scheduled_at && (
+            <Card className="flex flex-col gap-3 border border-warning/40 bg-warning/5 p-4">
+              <p className="text-[13px] font-medium text-[var(--tg-text)]">
+                Водитель не может в исходное время и предлагает другое:
+              </p>
+              <p className="text-[16px] font-semibold text-primary">
+                {formatDate(order.proposed_scheduled_at)}, {formatTime(order.proposed_scheduled_at)}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="danger"
+                  full
+                  onClick={() => respondToDriverCounter(false)}
+                  disabled={respondToCounter.isPending}
+                >
+                  Отклонить
+                </Button>
+                <Button full onClick={() => respondToDriverCounter(true)} disabled={respondToCounter.isPending}>
+                  Принять
+                </Button>
+              </div>
+            </Card>
+          )}
 
           <Card className="flex flex-col gap-3 p-4">
             <div className="flex gap-3">
@@ -189,7 +221,7 @@ export function OrderDetailScreen() {
         </motion.div>
       </div>
 
-      {canCancel && mode === 'view' && (
+      {canCancel && mode === 'view' && !isCountered && (
         <div className="flex gap-2 border-t border-[var(--tg-border)] p-4">
           {canModify && (
             <Button variant="secondary" full onClick={startEdit}>

@@ -3,6 +3,7 @@ export type Role = 'user' | 'driver' | 'admin'
 export type OrderStatus =
   | 'draft'
   | 'pending_driver'
+  | 'driver_countered'
   | 'confirmed'
   | 'driver_en_route'
   | 'driver_arrived'
