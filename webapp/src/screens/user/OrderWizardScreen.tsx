@@ -9,6 +9,7 @@ import { RouteMap } from '../../components/ui/RouteMap'
 import { SuccessCheck } from '../../components/ui/SuccessCheck'
 import { Avatar } from '../../components/ui/Avatar'
 import { ApiError, routing, type Address } from '../../lib/api'
+import { computeRouteEta } from '../../lib/yandexMaps'
 import { useFavoriteAddresses, useRecentAddresses, useTouchAddress } from '../../hooks/useAddresses'
 import { useDrivers } from '../../hooks/useDrivers'
 import { useCreateOrder, useSlots } from '../../hooks/useOrders'
@@ -66,15 +67,36 @@ export function OrderWizardScreen() {
 
   const { data: eta, isLoading: etaLoading } = useQuery({
     queryKey: ['eta', from?.address_text, from?.lat, from?.lon, to?.address_text, to?.lat, to?.lon],
-    queryFn: () =>
-      routing.eta({
+    queryFn: async () => {
+      // Real routing (with traffic) via the Yandex Maps JS API, computed
+      // client-side since our available Yandex products don't include a
+      // standalone server-side routing API. Falls back to the backend's
+      // haversine estimate when no VITE_YANDEX_MAPS_API_KEY is configured
+      // yet (today) or the client-side request fails for any reason.
+      const fromPoint: string | [number, number] =
+        from!.lat != null && from!.lon != null ? [from!.lat, from!.lon] : from!.address_text
+      const toPoint: string | [number, number] =
+        to!.lat != null && to!.lon != null ? [to!.lat, to!.lon] : to!.address_text
+
+      const clientResult = await computeRouteEta(fromPoint, toPoint)
+      if (clientResult) {
+        return {
+          duration_min: clientResult.durationMin,
+          distance_km: clientResult.distanceKm,
+          is_estimated: false,
+          source: 'yandex' as const,
+        }
+      }
+
+      return routing.eta({
         from_address: from!.address_text,
         from_lat: from!.lat ?? undefined,
         from_lon: from!.lon ?? undefined,
         to_address: to!.address_text,
         to_lat: to!.lat ?? undefined,
         to_lon: to!.lon ?? undefined,
-      }),
+      })
+    },
     enabled: step >= 1 && !!from && !!to,
   })
 
