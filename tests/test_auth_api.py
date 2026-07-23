@@ -1,122 +1,68 @@
-import re
+import hashlib
+import hmac
+import time
 
-import pytest
-
-
-def _extract_code(captured_emails: list[dict]) -> str:
-    match = re.search(r"\b(\d{6})\b", captured_emails[-1]["body"])
-    assert match, f"no 6-digit code found in email body: {captured_emails[-1]['body']}"
-    return match.group(1)
+BOT_TOKEN = "123456:test-bot-token"
 
 
-async def _mark_verified(email: str) -> None:
-    # Lazy imports: shared.db.engine builds its async engine from
-    # DATABASE_URL at import time, which must happen after conftest's
-    # database_url fixture has already set that env var (module-level
-    # imports here would run at pytest collection time, too early).
-    from sqlalchemy import select
-
-    from shared.db.engine import get_sessionmaker
-    from shared.db.models import User
-
-    async with get_sessionmaker()() as session:
-        user = (await session.execute(select(User).where(User.email == email))).scalar_one()
-        user.status = "verified"
-        await session.commit()
+def _sign_login_widget(data: dict) -> dict:
+    check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()))
+    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
+    data = dict(data)
+    data["hash"] = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
+    return data
 
 
-def test_register_verify_login_full_flow(client, captured_emails):
-    r = client.post(
-        "/v1/auth/register",
-        json={"email": "anna@example.com", "password": "correcthorse123", "full_name": "Anna K"},
+def _login(client, telegram_id: int, first_name: str = "Anna") -> dict:
+    payload = _sign_login_widget(
+        {"id": str(telegram_id), "first_name": first_name, "auth_date": str(int(time.time()))}
     )
-    assert r.status_code == 202
-    assert r.json() == {"status": "pending_verification"}
-    code = _extract_code(captured_emails)
-
-    r = client.post("/v1/auth/verify-email", json={"email": "anna@example.com", "code": "000000"})
-    assert r.status_code == 400
-    assert r.json()["error"]["code"] == "CODE_INVALID"
-
-    r = client.post("/v1/auth/verify-email", json={"email": "anna@example.com", "code": code})
+    r = client.post("/v1/auth/telegram/login-widget", json=payload)
     assert r.status_code == 200
-    body = r.json()
+    return r.json()
+
+
+def test_login_widget_creates_pending_user(client):
+    body = _login(client, 111)
     assert body["user"]["status"] == "pending"
-    assert body["user"]["email_confirmed_at"] is not None
+    assert body["user"]["role"] == "user"
+    assert body["user"]["telegram_id"] == 111
 
-    r = client.post(
-        "/v1/auth/login", json={"email": "anna@example.com", "password": "correcthorse123"}
-    )
-    assert r.status_code == 200
-    assert r.json()["user"]["status"] == "pending"
 
+def test_login_widget_same_telegram_id_is_idempotent(client):
+    first = _login(client, 222)
+    second = _login(client, 222)
+    assert first["user"]["id"] == second["user"]["id"]
+
+
+def test_blocked_account_rejected_at_login(client):
     import asyncio
 
-    asyncio.run(_mark_verified("anna@example.com"))
+    _login(client, 333)
 
-    r = client.post(
-        "/v1/auth/login", json={"email": "anna@example.com", "password": "correcthorse123"}
+    async def _block() -> None:
+        from sqlalchemy import select
+
+        from shared.db.engine import get_sessionmaker
+        from shared.db.models import User
+
+        async with get_sessionmaker()() as session:
+            user = (await session.execute(select(User).where(User.telegram_id == 333))).scalar_one()
+            user.status = "blocked"
+            await session.commit()
+
+    asyncio.run(_block())
+
+    payload = _sign_login_widget(
+        {"id": "333", "first_name": "Anna", "auth_date": str(int(time.time()))}
     )
-    assert r.status_code == 200
-    assert r.json()["user"]["status"] == "verified"
-
-
-def test_verify_email_too_many_attempts(client, captured_emails):
-    client.post(
-        "/v1/auth/register",
-        json={"email": "bob@example.com", "password": "correcthorse123", "full_name": "Bob"},
-    )
-    for _ in range(5):
-        r = client.post(
-            "/v1/auth/verify-email", json={"email": "bob@example.com", "code": "000000"}
-        )
-        assert r.status_code == 400
-
-    r = client.post("/v1/auth/verify-email", json={"email": "bob@example.com", "code": "000000"})
-    assert r.status_code == 429
-    assert r.json()["error"]["code"] == "CODE_TOO_MANY_ATTEMPTS"
-
-
-def test_login_unknown_email_and_wrong_password(client, captured_emails):
-    client.post(
-        "/v1/auth/register",
-        json={"email": "carl@example.com", "password": "correcthorse123", "full_name": "Carl"},
-    )
-    code = _extract_code(captured_emails)
-    client.post("/v1/auth/verify-email", json={"email": "carl@example.com", "code": code})
-
-    r = client.post(
-        "/v1/auth/login", json={"email": "nobody@example.com", "password": "whatever123"}
-    )
-    assert r.status_code == 401
-    assert r.json()["error"]["code"] == "INVALID_CREDENTIALS"
-
-    r = client.post("/v1/auth/login", json={"email": "carl@example.com", "password": "wrong123"})
-    assert r.status_code == 401
-    assert r.json()["error"]["code"] == "INVALID_CREDENTIALS"
-
-
-def test_login_before_email_confirmed_rejected(client, captured_emails):
-    client.post(
-        "/v1/auth/register",
-        json={"email": "dana@example.com", "password": "correcthorse123", "full_name": "Dana"},
-    )
-    r = client.post(
-        "/v1/auth/login", json={"email": "dana@example.com", "password": "correcthorse123"}
-    )
+    r = client.post("/v1/auth/telegram/login-widget", json=payload)
     assert r.status_code == 403
-    assert r.json()["error"]["code"] == "EMAIL_NOT_CONFIRMED"
+    assert r.json()["error"]["code"] == "ACCOUNT_BLOCKED"
 
 
-def test_refresh_rotation_and_logout(client, captured_emails):
-    client.post(
-        "/v1/auth/register",
-        json={"email": "erin@example.com", "password": "correcthorse123", "full_name": "Erin"},
-    )
-    code = _extract_code(captured_emails)
-    tokens = client.post(
-        "/v1/auth/verify-email", json={"email": "erin@example.com", "code": code}
-    ).json()
+def test_refresh_rotation_and_logout(client):
+    tokens = _login(client, 444)
 
     old_refresh = tokens["refresh_token"]
     r = client.post("/v1/auth/refresh", json={"refresh_token": old_refresh})
@@ -142,10 +88,39 @@ def test_me_requires_bearer_token(client):
     assert r.status_code == 401
 
 
-@pytest.mark.parametrize("password", ["short"])
-def test_register_rejects_short_password(client, password):
-    r = client.post(
-        "/v1/auth/register",
-        json={"email": "short@example.com", "password": password, "full_name": "Short"},
+def test_me_returns_current_user(client):
+    tokens = _login(client, 555)
+    r = client.get("/v1/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"})
+    assert r.status_code == 200
+    assert r.json()["telegram_id"] == 555
+
+
+def test_update_profile_sets_name_and_phone(client):
+    tokens = _login(client, 666)
+    r = client.patch(
+        "/v1/auth/profile",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+        json={"full_name": "Иванов Иван", "phone": "+79991234567"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["full_name"] == "Иванов Иван"
+    assert body["phone"] == "+79991234567"
+
+    r = client.get("/v1/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"})
+    assert r.json()["full_name"] == "Иванов Иван"
+
+
+def test_update_profile_requires_bearer_token(client):
+    r = client.patch("/v1/auth/profile", json={"full_name": "X", "phone": "+1"})
+    assert r.status_code == 401
+
+
+def test_update_profile_rejects_empty_fields(client):
+    tokens = _login(client, 777)
+    r = client.patch(
+        "/v1/auth/profile",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+        json={"full_name": "", "phone": ""},
     )
     assert r.status_code == 422

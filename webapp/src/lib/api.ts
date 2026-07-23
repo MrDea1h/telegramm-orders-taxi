@@ -6,14 +6,12 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 export interface MeResponse {
   id: string
-  email: string | null
-  telegram_id: number | null
+  telegram_id: number
   role: 'user' | 'driver' | 'admin'
   status: 'pending' | 'verified' | 'blocked'
   full_name: string | null
   phone: string | null
   can_order: boolean
-  email_confirmed_at: string | null
 }
 
 export interface TokenPair {
@@ -111,21 +109,6 @@ async function tryRefresh(): Promise<boolean> {
 }
 
 export const auth = {
-  register: (email: string, password: string, full_name: string) =>
-    apiFetch<{ status: string }>('/v1/auth/register', {
-      method: 'POST',
-      body: { email, password, full_name },
-    }),
-
-  verifyEmail: (email: string, code: string) =>
-    apiFetch<AuthResponse>('/v1/auth/verify-email', {
-      method: 'POST',
-      body: { email, code },
-    }),
-
-  login: (email: string, password: string) =>
-    apiFetch<AuthResponse>('/v1/auth/login', { method: 'POST', body: { email, password } }),
-
   refresh: () => tryRefresh(),
 
   logout: async () => {
@@ -146,24 +129,28 @@ export const auth = {
     }),
 
   me: () => apiFetch<MeResponse>('/v1/auth/me', { auth: true }),
+
+  updateProfile: (fullName: string, phone: string) =>
+    apiFetch<MeResponse>('/v1/auth/profile', {
+      method: 'PATCH',
+      auth: true,
+      body: { full_name: fullName, phone },
+    }),
 }
 
 export interface VerificationRequest {
   id: string
   full_name: string | null
-  email: string | null
   phone: string | null
-  telegram_id: number | null
-  email_confirmed_at: string | null
+  telegram_id: number
   created_at: string
 }
 
 export interface AdminUser {
   id: string
   full_name: string | null
-  email: string | null
   phone: string | null
-  telegram_id: number | null
+  telegram_id: number
   role: 'user' | 'driver' | 'admin'
   status: 'pending' | 'verified' | 'blocked'
   created_at: string

@@ -1,44 +1,51 @@
-import re
+import hashlib
+import hmac
+import time
+
+BOT_TOKEN = "123456:test-bot-token"
 
 
-def _extract_code(captured_emails: list[dict]) -> str:
-    match = re.search(r"\b(\d{6})\b", captured_emails[-1]["body"])
-    assert match
-    return match.group(1)
+def _sign_login_widget(data: dict) -> dict:
+    check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()))
+    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
+    data = dict(data)
+    data["hash"] = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
+    return data
 
 
-async def _create_admin(email: str, password: str) -> None:
+def _login(client, telegram_id: int, first_name: str = "User") -> dict:
+    payload = _sign_login_widget(
+        {"id": str(telegram_id), "first_name": first_name, "auth_date": str(int(time.time()))}
+    )
+    r = client.post("/v1/auth/telegram/login-widget", json=payload)
+    assert r.status_code == 200
+    return r.json()
+
+
+async def _create_admin(telegram_id: int) -> None:
     # Lazy imports: shared.db.engine builds its async engine from
     # DATABASE_URL at import time, which must happen after conftest's
     # database_url fixture has already set that env var.
-    import datetime as dt
-
-    from shared.auth_passwords import hash_password
     from shared.db.engine import get_sessionmaker
     from shared.db.models import User
 
     async with get_sessionmaker()() as session:
         session.add(
-            User(
-                email=email,
-                password_hash=hash_password(password),
-                full_name="Admin",
-                role="admin",
-                status="verified",
-                email_confirmed_at=dt.datetime.now(dt.UTC),
-            )
+            User(telegram_id=telegram_id, full_name="Admin", role="admin", status="verified")
         )
         await session.commit()
 
 
-async def _get_user_id(email: str) -> str:
+async def _get_user_id(telegram_id: int) -> str:
     from sqlalchemy import select
 
     from shared.db.engine import get_sessionmaker
     from shared.db.models import User
 
     async with get_sessionmaker()() as session:
-        user = (await session.execute(select(User).where(User.email == email))).scalar_one()
+        user = (
+            await session.execute(select(User).where(User.telegram_id == telegram_id))
+        ).scalar_one()
         return str(user.id)
 
 
@@ -55,26 +62,18 @@ async def _get_event_payload(event_type: str) -> dict:
         return event.payload
 
 
+ADMIN_TELEGRAM_ID = 900001
+
+
 def _admin_token(client) -> str:
     import asyncio
 
-    asyncio.run(_create_admin("admin@example.com", "adminpass123"))
-    r = client.post(
-        "/v1/auth/login", json={"email": "admin@example.com", "password": "adminpass123"}
-    )
-    assert r.status_code == 200
-    return r.json()["access_token"]
+    asyncio.run(_create_admin(ADMIN_TELEGRAM_ID))
+    return _login(client, ADMIN_TELEGRAM_ID, "Admin")["access_token"]
 
 
-def test_non_admin_gets_403(client, captured_emails):
-    client.post(
-        "/v1/auth/register",
-        json={"email": "user@example.com", "password": "correcthorse123", "full_name": "User"},
-    )
-    code = _extract_code(captured_emails)
-    tokens = client.post(
-        "/v1/auth/verify-email", json={"email": "user@example.com", "code": code}
-    ).json()
+def test_non_admin_gets_403(client):
+    tokens = _login(client, 100001)
 
     r = client.get(
         "/v1/admin/verification-requests",
@@ -84,55 +83,24 @@ def test_non_admin_gets_403(client, captured_emails):
     assert r.json()["error"]["code"] == "FORBIDDEN"
 
 
-def test_unconfirmed_email_excluded_from_queue(client, captured_emails):
+def test_pending_user_included_in_queue(client):
     admin_token = _admin_token(client)
-    client.post(
-        "/v1/auth/register",
-        json={
-            "email": "unconfirmed@example.com",
-            "password": "correcthorse123",
-            "full_name": "Unconfirmed",
-        },
-    )
+    _login(client, 100002, "Anna")
 
     r = client.get(
         "/v1/admin/verification-requests", headers={"Authorization": f"Bearer {admin_token}"}
     )
     assert r.status_code == 200
-    assert r.json() == []
+    telegram_ids = [u["telegram_id"] for u in r.json()]
+    assert telegram_ids == [100002]
 
 
-def test_confirmed_email_and_telegram_users_included(client, captured_emails):
-    admin_token = _admin_token(client)
-
-    client.post(
-        "/v1/auth/register",
-        json={"email": "anna@example.com", "password": "correcthorse123", "full_name": "Anna"},
-    )
-    code = _extract_code(captured_emails)
-    client.post("/v1/auth/verify-email", json={"email": "anna@example.com", "code": code})
-
-    r = client.get(
-        "/v1/admin/verification-requests", headers={"Authorization": f"Bearer {admin_token}"}
-    )
-    assert r.status_code == 200
-    emails = [u["email"] for u in r.json()]
-    assert emails == ["anna@example.com"]
-
-
-def test_reject_writes_audit_and_blocks_login(client, captured_emails):
+def test_reject_writes_audit_and_blocks_login(client):
     import asyncio
 
     admin_token = _admin_token(client)
-
-    client.post(
-        "/v1/auth/register",
-        json={"email": "pavel@example.com", "password": "correcthorse123", "full_name": "Pavel"},
-    )
-    code = _extract_code(captured_emails)
-    client.post("/v1/auth/verify-email", json={"email": "pavel@example.com", "code": code})
-
-    user_id = asyncio.run(_get_user_id("pavel@example.com"))
+    _login(client, 100003, "Pavel")
+    user_id = asyncio.run(_get_user_id(100003))
 
     r = client.post(
         f"/v1/admin/verification-requests/{user_id}/reject",
@@ -145,26 +113,20 @@ def test_reject_writes_audit_and_blocks_login(client, captured_emails):
     payload = asyncio.run(_get_event_payload("verification_rejected"))
     assert payload == {"reason": "could not verify"}
 
-    r = client.post(
-        "/v1/auth/login", json={"email": "pavel@example.com", "password": "correcthorse123"}
+    payload = _sign_login_widget(
+        {"id": "100003", "first_name": "Pavel", "auth_date": str(int(time.time()))}
     )
+    r = client.post("/v1/auth/telegram/login-widget", json=payload)
     assert r.status_code == 403
     assert r.json()["error"]["code"] == "ACCOUNT_BLOCKED"
 
 
-def test_approve_marks_verified(client, captured_emails):
+def test_approve_marks_verified(client):
     import asyncio
 
     admin_token = _admin_token(client)
-
-    client.post(
-        "/v1/auth/register",
-        json={"email": "olga@example.com", "password": "correcthorse123", "full_name": "Olga"},
-    )
-    code = _extract_code(captured_emails)
-    client.post("/v1/auth/verify-email", json={"email": "olga@example.com", "code": code})
-
-    user_id = asyncio.run(_get_user_id("olga@example.com"))
+    _login(client, 100004, "Olga")
+    user_id = asyncio.run(_get_user_id(100004))
 
     r = client.post(
         f"/v1/admin/verification-requests/{user_id}/approve",
@@ -173,26 +135,21 @@ def test_approve_marks_verified(client, captured_emails):
     assert r.status_code == 200
     assert r.json()["status"] == "verified"
 
-    r = client.post(
-        "/v1/auth/login", json={"email": "olga@example.com", "password": "correcthorse123"}
-    )
-    assert r.json()["user"]["status"] == "verified"
+    r = _login(client, 100004, "Olga")
+    assert r["user"]["status"] == "verified"
 
 
-def test_list_users_returns_all(client, captured_emails):
+def test_list_users_returns_all(client):
     admin_token = _admin_token(client)
-    client.post(
-        "/v1/auth/register",
-        json={"email": "irina@example.com", "password": "correcthorse123", "full_name": "Irina"},
-    )
+    _login(client, 100005, "Irina")
 
     r = client.get("/v1/admin/users", headers={"Authorization": f"Bearer {admin_token}"})
     assert r.status_code == 200
-    emails = {u["email"] for u in r.json()}
-    assert {"admin@example.com", "irina@example.com"} <= emails
+    telegram_ids = {u["telegram_id"] for u in r.json()}
+    assert {ADMIN_TELEGRAM_ID, 100005} <= telegram_ids
 
 
-def test_set_role_to_driver_creates_driver_row(client, captured_emails):
+def test_set_role_to_driver_creates_driver_row(client):
     import asyncio
 
     from sqlalchemy import select
@@ -201,13 +158,8 @@ def test_set_role_to_driver_creates_driver_row(client, captured_emails):
     from shared.db.models import Driver
 
     admin_token = _admin_token(client)
-    client.post(
-        "/v1/auth/register",
-        json={"email": "dmitry@example.com", "password": "correcthorse123", "full_name": "Dmitry"},
-    )
-    code = _extract_code(captured_emails)
-    client.post("/v1/auth/verify-email", json={"email": "dmitry@example.com", "code": code})
-    user_id = asyncio.run(_get_user_id("dmitry@example.com"))
+    _login(client, 100006, "Dmitry")
+    user_id = asyncio.run(_get_user_id(100006))
 
     r = client.patch(
         f"/v1/admin/users/{user_id}/role",
@@ -230,11 +182,11 @@ def test_set_role_to_driver_creates_driver_row(client, captured_emails):
     assert payload == {"from": "user", "to": "driver"}
 
 
-def test_admin_cannot_change_own_role(client, captured_emails):
+def test_admin_cannot_change_own_role(client):
     import asyncio
 
     admin_token = _admin_token(client)
-    admin_id = asyncio.run(_get_user_id("admin@example.com"))
+    admin_id = asyncio.run(_get_user_id(ADMIN_TELEGRAM_ID))
 
     r = client.patch(
         f"/v1/admin/users/{admin_id}/role",

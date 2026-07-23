@@ -74,7 +74,7 @@ async def _clean_tables(_migrate):
     async with get_sessionmaker()() as session:
         await session.execute(
             text(
-                "TRUNCATE users, verification_codes, user_events, push_subscriptions,"
+                "TRUNCATE users, user_events, push_subscriptions,"
                 " orders, order_events, addresses, driver_time_off, driver_schedule,"
                 " drivers, settings CASCADE"
             )
@@ -94,17 +94,3 @@ def client():
 
     with TestClient(app) as c:
         yield c
-
-
-@pytest.fixture
-def captured_emails(monkeypatch):
-    """Registration sends a real code via shared.email_send.send_email;
-    tests need the plaintext code (only ever hashed in the DB), so capture
-    it here instead of sending it."""
-    sent = []
-
-    async def _fake_send_email(to, subject, body):
-        sent.append({"to": to, "subject": subject, "body": body})
-
-    monkeypatch.setattr("api.app.auth_api.send_email", _fake_send_email)
-    return sent

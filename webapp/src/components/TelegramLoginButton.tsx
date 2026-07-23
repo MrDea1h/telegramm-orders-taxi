@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { auth } from '../lib/api'
+import { ApiError, auth } from '../lib/api'
 import { useAppStore } from '../store/appStore'
 import { haptics } from '../lib/haptics'
 
@@ -12,11 +12,10 @@ declare global {
 /**
  * Embeds Telegram's official Login Widget (https://core.telegram.org/widgets/login).
  * Requires the bot to have a public username and `/setdomain` configured via
- * BotFather — neither exists yet for this project, so this renders nothing
- * at all (rather than a broken/dead button) until VITE_TELEGRAM_BOT_USERNAME
- * is set.
+ * BotFather — renders nothing at all (rather than a broken/dead button) if
+ * VITE_TELEGRAM_BOT_USERNAME isn't set, e.g. in local dev without a bot.
  */
-export function TelegramLoginButton() {
+export function TelegramLoginButton({ onError }: { onError?: (code: string) => void } = {}) {
   const containerRef = useRef<HTMLDivElement>(null)
   const setAuth = useAppStore((s) => s.setAuth)
   const botUsername = import.meta.env.VITE_TELEGRAM_BOT_USERNAME
@@ -29,8 +28,9 @@ export function TelegramLoginButton() {
         const result = await auth.telegramLoginWidget(tgUser)
         haptics.notification('success')
         setAuth({ access_token: result.access_token, refresh_token: result.refresh_token }, result.user)
-      } catch {
+      } catch (err) {
         haptics.notification('error')
+        onError?.(err instanceof ApiError ? err.code : 'UNKNOWN')
       }
     }
 
@@ -47,7 +47,7 @@ export function TelegramLoginButton() {
     return () => {
       delete window.onApexRideTelegramAuth
     }
-  }, [botUsername, setAuth])
+  }, [botUsername, setAuth, onError])
 
   if (!botUsername) return null
 

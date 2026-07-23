@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.app.deps import require_role
@@ -21,10 +21,8 @@ router = APIRouter(prefix="/v1/admin", tags=["admin"])
 class VerificationRequestOut(BaseModel):
     id: uuid.UUID
     full_name: str | None
-    email: str | None
     phone: str | None
-    telegram_id: int | None
-    email_confirmed_at: dt.datetime | None
+    telegram_id: int
     created_at: dt.datetime
 
 
@@ -35,9 +33,8 @@ class RejectRequest(BaseModel):
 class AdminUserOut(BaseModel):
     id: uuid.UUID
     full_name: str | None
-    email: str | None
     phone: str | None
-    telegram_id: int | None
+    telegram_id: int
     role: str
     status: str
     created_at: dt.datetime
@@ -52,15 +49,11 @@ async def list_verification_requests(
     admin: User = Depends(require_role("admin")),
     session: AsyncSession = Depends(get_session),
 ) -> list[User]:
-    # Genuinely identity-proven pending users only: either they confirmed
-    # mailbox ownership via the email code, or Telegram's own signature
-    # already proved control of that account. A pending row with neither
-    # (shouldn't normally exist, but defensively excluded) never appears.
+    # Every pending user is already identity-proven — Telegram's own
+    # signature verified control of that account at login time, and
+    # telegram_id is mandatory on every row now (no separate email path).
     result = await session.execute(
-        select(User)
-        .where(User.status == "pending")
-        .where(or_(User.email_confirmed_at.is_not(None), User.telegram_id.is_not(None)))
-        .order_by(User.created_at)
+        select(User).where(User.status == "pending").order_by(User.created_at)
     )
     return list(result.scalars().all())
 

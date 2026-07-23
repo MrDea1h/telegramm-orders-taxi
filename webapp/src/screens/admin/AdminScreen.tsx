@@ -123,13 +123,13 @@ export function AdminScreen() {
               {requests.map((r) => (
                 <Card key={r.id} className="p-3.5">
                   <div className="flex items-center gap-3">
-                    <Avatar name={r.full_name ?? r.email ?? '?'} color="#7C3AED" size={40} />
+                    <Avatar name={r.full_name ?? `tg:${r.telegram_id}`} color="#7C3AED" size={40} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-[14px] font-medium text-[var(--tg-text)]">
                         {r.full_name ?? 'Без имени'}
                       </p>
                       <p className="truncate text-[12px] text-[var(--tg-text-secondary)]">
-                        {r.email ?? r.phone ?? (r.telegram_id ? `tg:${r.telegram_id}` : '—')}
+                        {r.phone ?? `tg:${r.telegram_id}`}
                       </p>
                     </div>
                     <span className="shrink-0 text-[11px] text-[var(--tg-text-secondary)]">
@@ -187,7 +187,7 @@ export function AdminScreen() {
                 <Card key={u.id} className="flex flex-col gap-2 p-3">
                   <div className="flex items-center gap-3">
                     <Avatar
-                      name={u.full_name ?? u.email ?? '?'}
+                      name={u.full_name ?? `tg:${u.telegram_id}`}
                       color={u.role === 'driver' ? '#3B82F6' : u.role === 'admin' ? '#F59E0B' : '#7C3AED'}
                       size={36}
                     />
@@ -197,7 +197,7 @@ export function AdminScreen() {
                         {u.id === currentUserId && ' (вы)'}
                       </p>
                       <p className="truncate text-[11px] text-[var(--tg-text-secondary)]">
-                        {u.email ?? u.phone ?? (u.telegram_id ? `tg:${u.telegram_id}` : '—')}
+                        {u.phone ?? `tg:${u.telegram_id}`}
                       </p>
                     </div>
                     <span

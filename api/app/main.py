@@ -27,8 +27,7 @@ async def lifespan(app: FastAPI):
     # including shared/*'s module-level `getLogger(__name__)` loggers.
     # basicConfig's force=True fixes handlers, but not the `.disabled` flag
     # dictConfig set on those pre-existing loggers, so re-enable them
-    # explicitly (otherwise shared/email_send.py's dev-mode code-in-logs
-    # fallback silently produces no output).
+    # explicitly.
     for name in logging.root.manager.loggerDict:
         logging.getLogger(name).disabled = False
     # Alembic's env.py does its own asyncio.run() — run it in a worker

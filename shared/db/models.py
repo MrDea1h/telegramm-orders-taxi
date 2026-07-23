@@ -26,24 +26,17 @@ class User(Base):
     __table_args__ = (
         CheckConstraint("role in ('user','driver','admin')", name="role"),
         CheckConstraint("status in ('pending','verified','blocked')", name="status"),
-        # A user must have at least one way to log in — telegram_id is no
-        # longer a mandatory anchor now that email+password is a first-class
-        # auth path (see docs/context or the M1 plan for the PWA pivot).
-        CheckConstraint("telegram_id IS NOT NULL OR email IS NOT NULL", name="identity_present"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
     )
-    telegram_id: Mapped[int | None] = mapped_column(BigInteger, unique=True)
-    email: Mapped[str | None] = mapped_column(String(255), unique=True)
-    password_hash: Mapped[str | None] = mapped_column(String(255))
+    telegram_id: Mapped[int] = mapped_column(BigInteger, nullable=False, unique=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, server_default="user")
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="pending")
     full_name: Mapped[str | None] = mapped_column(String(200))
     phone: Mapped[str | None] = mapped_column(String(32))
     can_order: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-    email_confirmed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -192,22 +185,6 @@ class UserEvent(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-
-
-class VerificationCode(Base):
-    __tablename__ = "verification_codes"
-    __table_args__ = (CheckConstraint("channel in ('email','phone')", name="channel"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid()
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    channel: Mapped[str] = mapped_column(String(20), nullable=False)
-    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default="0")
 
 
 class Setting(Base):

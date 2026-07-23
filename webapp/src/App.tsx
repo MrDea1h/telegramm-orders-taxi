@@ -14,11 +14,18 @@ import { AdminScreen } from './screens/admin/AdminScreen'
 function Screens() {
   const { role, userScreen, showOnboarding, authReady, accessToken, user } = useAppStore()
   const isAuthenticated = !!accessToken && !!user
+  // Telegram login alone isn't enough to reach the real app: the profile
+  // step (full name + phone, asked explicitly rather than trusting
+  // Telegram's own first_name) and admin verification both have to clear
+  // first — either one being incomplete routes back to OnboardingScreen,
+  // which picks the right stage (profile/pending/blocked) from `user`.
+  const needsOnboarding =
+    !isAuthenticated || !user || !user.full_name || !user.phone || user.status !== 'verified'
 
   // showOnboarding (the dev-toolbar manual toggle) always wins, for quick
   // design review without going through a real login. Otherwise gate on
   // the real auth state established by useAuthBootstrap.
-  if (showOnboarding || (authReady && !isAuthenticated)) {
+  if (showOnboarding || (authReady && needsOnboarding)) {
     return <OnboardingScreen />
   }
 
