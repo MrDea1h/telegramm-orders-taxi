@@ -10,6 +10,7 @@ import { SuccessCheck } from '../../components/ui/SuccessCheck'
 import { Avatar } from '../../components/ui/Avatar'
 import { ApiError, routing, type Address } from '../../lib/api'
 import { computeRouteEta } from '../../lib/yandexMaps'
+import { geocodeAddress, reverseGeocode } from '../../lib/yandexGeocoder'
 import { MapAddressPicker } from '../../components/MapAddressPicker'
 import { useFavoriteAddresses, useRecentAddresses, useTouchAddress } from '../../hooks/useAddresses'
 import { useDrivers } from '../../hooks/useDrivers'
@@ -46,6 +47,7 @@ export function OrderWizardScreen() {
   const goTo = useAppStore((s) => s.goTo)
   const queryClient = useQueryClient()
   const idempotencyKeyRef = useRef(crypto.randomUUID())
+  const reverseGeocodeRequestId = useRef(0)
 
   const [step, setStep] = useState(0)
   const [from, setFrom] = useState<Address | null>(null)
@@ -53,6 +55,11 @@ export function OrderWizardScreen() {
   const [pickingFor, setPickingFor] = useState<'from' | 'to' | null>(null)
   const [addressQuery, setAddressQuery] = useState('')
   const [pickedCoords, setPickedCoords] = useState<[number, number] | null>(null)
+  // 'idle': haven't tried yet (or typing again after a failed attempt).
+  // 'loading': geocoding the typed text right now.
+  // 'failed': geocoding came back empty — show the map as a manual fallback.
+  const [geocodeStatus, setGeocodeStatus] = useState<'idle' | 'loading' | 'failed'>('idle')
+  const [mapResolvedLabel, setMapResolvedLabel] = useState<string | null>(null)
   const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(new Date()))
   const [slotTime, setSlotTime] = useState<string | null>(null)
   const [driverChoice, setDriverChoice] = useState<'any' | string>('any')
@@ -125,10 +132,34 @@ export function OrderWizardScreen() {
     else setTo(address)
     setPickingFor(null)
     setAddressQuery('')
+    setPickedCoords(null)
+    setGeocodeStatus('idle')
+    setMapResolvedLabel(null)
     touchAddress.mutate({
       addressText: address.address_text,
       lat: address.lat ?? undefined,
       lon: address.lon ?? undefined,
+    })
+  }
+
+  async function handleUseTypedAddress() {
+    const text = addressQuery.trim()
+    if (!text) return
+    setGeocodeStatus('loading')
+    const result = await geocodeAddress(text)
+    if (result) {
+      selectAddress(makeSyntheticAddress(text, result.coords))
+    } else {
+      setGeocodeStatus('failed')
+    }
+  }
+
+  function handleMapCoordsChange(coords: [number, number]) {
+    setPickedCoords(coords)
+    setMapResolvedLabel(null)
+    const requestId = ++reverseGeocodeRequestId.current
+    reverseGeocode(coords[0], coords[1]).then((label) => {
+      if (reverseGeocodeRequestId.current === requestId) setMapResolvedLabel(label)
     })
   }
 
@@ -239,10 +270,13 @@ export function OrderWizardScreen() {
                     <input
                       autoFocus
                       value={addressQuery}
-                      onChange={(e) => setAddressQuery(e.target.value)}
+                      onChange={(e) => {
+                        setAddressQuery(e.target.value)
+                        setGeocodeStatus('idle')
+                      }}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && addressQuery.trim() && pickedCoords) {
-                          selectAddress(makeSyntheticAddress(addressQuery.trim(), pickedCoords))
+                        if (e.key === 'Enter' && addressQuery.trim() && geocodeStatus !== 'loading') {
+                          handleUseTypedAddress()
                         }
                       }}
                       placeholder="Введите адрес или ориентир"
@@ -252,25 +286,47 @@ export function OrderWizardScreen() {
 
                   {addressQuery.trim() ? (
                     <div className="flex flex-col gap-3">
-                      <p className="text-[12px] text-[var(--tg-text-secondary)]">
-                        Передвиньте карту так, чтобы метка встала на нужную точку — координаты берутся именно
-                        отсюда, текст выше используется только как подпись.
-                      </p>
-                      <MapAddressPicker onChange={setPickedCoords} />
-                      <p className="text-center text-[12px] font-medium text-[var(--tg-text)]">
-                        {pickedCoords
-                          ? `📍 ${pickedCoords[0].toFixed(5)}, ${pickedCoords[1].toFixed(5)}`
-                          : 'Определяем координаты…'}
-                      </p>
-                      <button
-                        disabled={!pickedCoords}
-                        onClick={() =>
-                          pickedCoords && selectAddress(makeSyntheticAddress(addressQuery.trim(), pickedCoords))
-                        }
-                        className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-center text-[13px] font-medium text-primary active:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Использовать «{addressQuery.trim()}»
-                      </button>
+                      {geocodeStatus !== 'failed' ? (
+                        <button
+                          disabled={geocodeStatus === 'loading'}
+                          onClick={handleUseTypedAddress}
+                          className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-center text-[13px] font-medium text-primary active:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {geocodeStatus === 'loading' ? (
+                            <>
+                              <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                              Ищем «{addressQuery.trim()}»…
+                            </>
+                          ) : (
+                            <>Использовать «{addressQuery.trim()}»</>
+                          )}
+                        </button>
+                      ) : (
+                        <>
+                          <p className="text-[12px] text-danger">
+                            Не нашли такой адрес автоматически — уточните точку на карте.
+                          </p>
+                          <MapAddressPicker onChange={handleMapCoordsChange} />
+                          <p className="text-center text-[12px] font-medium text-[var(--tg-text)]">
+                            {mapResolvedLabel ??
+                              (pickedCoords
+                                ? `📍 ${pickedCoords[0].toFixed(5)}, ${pickedCoords[1].toFixed(5)}`
+                                : 'Определяем координаты…')}
+                          </p>
+                          <button
+                            disabled={!pickedCoords}
+                            onClick={() =>
+                              pickedCoords &&
+                              selectAddress(
+                                makeSyntheticAddress(mapResolvedLabel ?? addressQuery.trim(), pickedCoords),
+                              )
+                            }
+                            className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 px-2 py-2 text-center text-[13px] font-medium text-primary active:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Использовать эту точку
+                          </button>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <>
