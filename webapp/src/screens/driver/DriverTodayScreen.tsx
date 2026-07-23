@@ -4,6 +4,7 @@ import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { EmptyState } from '../../components/ui/EmptyState'
+import { LogoutButton } from '../../components/LogoutButton'
 import { formatTime } from '../../lib/format'
 import type { OrderStatus } from '../../data/types'
 import type { OrderTransitionAction } from '../../lib/api'
@@ -57,18 +58,21 @@ export function DriverTodayScreen() {
           <h1 className="text-[17px] font-semibold text-[var(--tg-text)]">Сегодня</h1>
           <p className="text-[12px] text-[var(--tg-text-secondary)]">{queue?.length ?? 0} поездок в расписании</p>
         </div>
-        <button
-          onClick={() => {
-            haptics.selection()
-            setDuty.mutate(!available)
-          }}
-          className={`flex items-center gap-2 rounded-full px-3 py-2 text-[12px] font-medium transition-colors ${
-            available ? 'bg-success/10 text-success' : 'bg-[var(--tg-surface)] text-[var(--tg-text-secondary)]'
-          }`}
-        >
-          <span className={`h-2 w-2 rounded-full ${available ? 'bg-success' : 'bg-neutral-400'}`} />
-          {available ? 'На линии' : 'Недоступен'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              haptics.selection()
+              setDuty.mutate(!available)
+            }}
+            className={`flex items-center gap-2 rounded-full px-3 py-2 text-[12px] font-medium transition-colors ${
+              available ? 'bg-success/10 text-success' : 'bg-[var(--tg-surface)] text-[var(--tg-text-secondary)]'
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full ${available ? 'bg-success' : 'bg-neutral-400'}`} />
+            {available ? 'На линии' : 'Недоступен'}
+          </button>
+          <LogoutButton />
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 py-4">

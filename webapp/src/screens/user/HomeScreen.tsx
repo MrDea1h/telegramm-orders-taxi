@@ -5,6 +5,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge'
 import { RouteMap } from '../../components/ui/RouteMap'
 import { Avatar } from '../../components/ui/Avatar'
 import { EmptyState } from '../../components/ui/EmptyState'
+import { LogoutButton } from '../../components/LogoutButton'
 import { formatRelative, formatDateShort, formatTime } from '../../lib/format'
 import { useOrderHistory, useUpcomingOrder } from '../../hooks/useOrders'
 import { useAppStore } from '../../store/appStore'
@@ -38,7 +39,10 @@ export function HomeScreen() {
             <p className="text-[13px] text-white/80">Добрый день,</p>
             <h1 className="text-[20px] font-semibold">{givenName ?? 'Коллега'}</h1>
           </div>
-          <Avatar name={user?.full_name ?? '?'} color="rgba(255,255,255,0.25)" size={40} />
+          <div className="flex items-center gap-2">
+            <Avatar name={user?.full_name ?? '?'} color="rgba(255,255,255,0.25)" size={40} />
+            <LogoutButton variant="light" />
+          </div>
         </div>
       </div>
 
