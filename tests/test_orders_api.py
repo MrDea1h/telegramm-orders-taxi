@@ -252,8 +252,15 @@ def test_slots_reflect_real_transit_time_from_previous_dropoff(client, monkeypat
     driver_id = asyncio.run(_get_driver_id(driver_user_id))
     driver_headers = _auth_header(driver_tokens)
 
-    order_time = dt.datetime.fromisoformat(_future_iso(days=1))
-    weekday = order_time.astimezone(_COMPANY_TZ).weekday()
+    # Fixed at 10:00 local rather than "whatever time of day _future_iso
+    # lands on" — the test needs reliable room both before AND after this
+    # booking within the day's schedule window, which a wall-clock-relative
+    # time can't guarantee (e.g. landing at 23:00 would leave no room after).
+    next_weekday_local = dt.datetime.now(_COMPANY_TZ) + dt.timedelta(days=1)
+    while next_weekday_local.weekday() >= 5:
+        next_weekday_local += dt.timedelta(days=1)
+    order_time = next_weekday_local.replace(hour=10, minute=0, second=0, microsecond=0)
+    weekday = order_time.weekday()
     r = client.put(
         "/v1/drivers/me/schedule",
         headers=driver_headers,
@@ -295,18 +302,28 @@ def test_slots_reflect_real_transit_time_from_previous_dropoff(client, monkeypat
     assert r.status_code == 200
     times = [dt.datetime.fromisoformat(t) for t in r.json()["times"]]
 
+    # The all-day schedule legitimately offers slots before the existing
+    # booking too (whatever time of day _future_iso(1) landed on) — only the
+    # slots that would fall in the gap right after it are what this test is
+    # actually about.
     order_end = order_time + dt.timedelta(minutes=30)
+    after_order_times = [t for t in times if t >= order_end]
+    assert after_order_times, "expected at least one slot after the existing booking"
+
     # With the real 60-minute transit time, nothing should be offered until
     # order_end + 60 real minutes — a flat ORDER_BUFFER_MIN(30) buffer would
     # have wrongly allowed slots starting as early as order_end + 30min.
     too_early_cutoff = order_end + dt.timedelta(minutes=60)
-    assert all(t >= too_early_cutoff for t in times), [t.isoformat() for t in times]
-    # Confirm slots do open up right at/after that real cutoff — an all-empty
+    assert all(t >= too_early_cutoff for t in after_order_times), [
+        t.isoformat() for t in after_order_times
+    ]
+    # Confirm slots do reopen right at/after that real cutoff — an all-empty
     # list would vacuously satisfy the assertion above without proving
     # anything.
     assert any(
-        too_early_cutoff <= t < too_early_cutoff + dt.timedelta(minutes=45) for t in times
-    ), [t.isoformat() for t in times]
+        too_early_cutoff <= t < too_early_cutoff + dt.timedelta(minutes=45)
+        for t in after_order_times
+    ), [t.isoformat() for t in after_order_times]
 
 
 def test_get_order_forbidden_for_other_user(client):
