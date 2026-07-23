@@ -7,7 +7,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { LogoutButton } from '../../components/LogoutButton'
 import { AdminViewSwitcher } from '../../components/AdminViewSwitcher'
 import { PullToRefresh } from '../../components/PullToRefresh'
-import { formatTime } from '../../lib/format'
+import { formatDateShort, formatTime, shortenAddress } from '../../lib/format'
 import { yandexNavigationUrl } from '../../lib/mapsLink'
 import type { OrderStatus } from '../../data/types'
 import type { OrderTransitionAction } from '../../lib/api'
@@ -22,6 +22,23 @@ function ScheduleIcon() {
       <rect x="3" y="4" width="18" height="17" rx="3" stroke="currentColor" strokeWidth="1.8" />
       <path d="M3 9h18" stroke="currentColor" strokeWidth="1.8" />
       <path d="M8 2v4M16 2v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <rect x="9" y="9" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -53,8 +70,20 @@ export function DriverTodayScreen() {
   const [rejectReason, setRejectReason] = useState('')
   const [proposingId, setProposingId] = useState<string | null>(null)
   const [proposedTime, setProposedTime] = useState('')
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
 
   const available = profile?.on_duty ?? true
+
+  async function handleCopyAddress(key: string, address: string) {
+    haptics.selection()
+    try {
+      await navigator.clipboard.writeText(address)
+      setCopiedKey(key)
+      setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1500)
+    } catch {
+      haptics.notification('error')
+    }
+  }
 
   async function handleTransition(
     orderId: string,
@@ -139,37 +168,65 @@ export function DriverTodayScreen() {
                   <Card className="p-3.5">
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-[13px] font-semibold text-[var(--tg-text)]">
-                        {formatTime(order.scheduled_at)}
+                        {formatDateShort(order.scheduled_at)}, {formatTime(order.scheduled_at)}
                       </span>
                       <StatusBadge status={order.status} />
                     </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[13px] text-[var(--tg-text)]">{order.from_address}</p>
-                      {order.from_lat != null && order.from_lon != null && (
-                        <a
-                          href={yandexNavigationUrl(order.from_lat, order.from_lon)}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="shrink-0 text-[11px] font-medium text-primary active:text-primary/70"
+                    <div className="flex items-center justify-between gap-1.5">
+                      <p className="min-w-0 truncate text-[13px] text-[var(--tg-text)]">
+                        {shortenAddress(order.from_address)}
+                      </p>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleCopyAddress(`${order.id}-from`, order.from_address)
+                          }}
+                          className="text-[var(--tg-text-secondary)] active:text-primary"
+                          aria-label="Скопировать адрес подачи"
                         >
-                          Маршрут →
-                        </a>
-                      )}
+                          {copiedKey === `${order.id}-from` ? <CheckIcon /> : <CopyIcon />}
+                        </button>
+                        {order.from_lat != null && order.from_lon != null && (
+                          <a
+                            href={yandexNavigationUrl(order.from_lat, order.from_lon)}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[11px] font-medium text-primary active:text-primary/70"
+                          >
+                            Маршрут →
+                          </a>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-[12px] text-[var(--tg-text-secondary)]">→ {order.to_address}</p>
-                      {order.to_lat != null && order.to_lon != null && (
-                        <a
-                          href={yandexNavigationUrl(order.to_lat, order.to_lon)}
-                          target="_blank"
-                          rel="noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="shrink-0 text-[11px] font-medium text-primary active:text-primary/70"
+                    <div className="flex items-center justify-between gap-1.5">
+                      <p className="min-w-0 truncate text-[12px] text-[var(--tg-text-secondary)]">
+                        → {shortenAddress(order.to_address)}
+                      </p>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleCopyAddress(`${order.id}-to`, order.to_address)
+                          }}
+                          className="text-[var(--tg-text-secondary)] active:text-primary"
+                          aria-label="Скопировать адрес назначения"
                         >
-                          Маршрут →
-                        </a>
-                      )}
+                          {copiedKey === `${order.id}-to` ? <CheckIcon /> : <CopyIcon />}
+                        </button>
+                        {order.to_lat != null && order.to_lon != null && (
+                          <a
+                            href={yandexNavigationUrl(order.to_lat, order.to_lon)}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-[11px] font-medium text-primary active:text-primary/70"
+                          >
+                            Маршрут →
+                          </a>
+                        )}
+                      </div>
                     </div>
                     <div className="mt-2 flex items-center justify-between text-[11px] text-[var(--tg-text-secondary)]">
                       <span>{order.passengers} пасс.</span>

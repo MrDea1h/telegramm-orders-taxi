@@ -230,8 +230,15 @@ async def get_slots(
             raise AppError(400, "DRIVER_UNAVAILABLE", "Driver is not available")
         candidate_drivers = [driver]
     else:
+        # Exclude admin accounts' auto-provisioned Driver rows (see the
+        # superuser "act as driver" decision) from the "any available
+        # driver" pool — those are for the admin's own self-service driver
+        # flows, not something a real "любой свободный" booking should ever
+        # land on.
         result = await session.execute(
-            select(Driver).where(Driver.is_active.is_(True), Driver.on_duty.is_(True))
+            select(Driver)
+            .join(User, User.id == Driver.user_id)
+            .where(Driver.is_active.is_(True), Driver.on_duty.is_(True), User.role == "driver")
         )
         candidate_drivers = list(result.scalars().all())
 

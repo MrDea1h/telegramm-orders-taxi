@@ -18,3 +18,18 @@ export function formatRelative(iso: string): string {
   if (Math.abs(diffH) < 24) return diffH >= 0 ? `через ${diffH} ч` : `${Math.abs(diffH)} ч назад`
   return formatDate(iso)
 }
+
+// Yandex's geocoded addresses come back fully qualified — "Россия, Москва,
+// Армянский переулок, 3-5с10" — which wraps awkwardly in a compact card.
+// Keep only the last two comma-separated segments (street + house in every
+// case seen from this account's Geocoder), which is what actually matters
+// once you're already in the right city. Full text stays untouched in
+// OrderDetailScreen and anywhere copied for a navigation app.
+export function shortenAddress(fullAddress: string): string {
+  const parts = fullAddress
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+  if (parts.length <= 2) return fullAddress
+  return parts.slice(-2).join(', ')
+}

@@ -9,7 +9,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { LogoutButton } from '../../components/LogoutButton'
 import { AdminViewSwitcher } from '../../components/AdminViewSwitcher'
 import { PullToRefresh } from '../../components/PullToRefresh'
-import { formatRelative, formatDateShort, formatTime } from '../../lib/format'
+import { formatRelative, formatDateShort, formatTime, shortenAddress } from '../../lib/format'
 import { admin, ApiError, type AdminUser, type VerificationRequest } from '../../lib/api'
 import { useAdminOrders, useAssignOrder, useAdminCancelOrder } from '../../hooks/useOrders'
 import { useDrivers } from '../../hooks/useDrivers'
@@ -367,7 +367,7 @@ export function AdminScreen() {
                       <StatusBadge status={o.status} />
                     </div>
                     <p className="truncate text-[12px] text-[var(--tg-text-secondary)]">
-                      {o.from_address} → {o.to_address}
+                      {shortenAddress(o.from_address)} → {shortenAddress(o.to_address)}
                     </p>
                     <p className="text-[11px] text-[var(--tg-text-secondary)]">
                       Заказчик: {o.user_full_name ?? o.user_phone ?? '—'} · Водитель:{' '}

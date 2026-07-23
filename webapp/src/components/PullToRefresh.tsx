@@ -98,9 +98,9 @@ export function PullToRefresh({
       className={`relative overflow-y-auto overscroll-y-contain ${className ?? ''}`}
     >
       <div
-        className="pointer-events-none absolute left-0 right-0 top-0 z-10 flex justify-center pt-3"
+        className="pointer-events-none absolute left-0 right-0 top-0 z-10 flex justify-center pt-1"
         style={{
-          transform: `translateY(${pullDistance - 40}px)`,
+          transform: `translateY(${pullDistance - 56}px)`,
           opacity: indicatorVisible ? 1 : 0,
           transition: draggingRef.current ? undefined : 'transform 0.2s, opacity 0.2s',
         }}

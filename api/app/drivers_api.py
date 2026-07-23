@@ -88,7 +88,12 @@ async def list_drivers(
     result = await session.execute(
         select(Driver, User.full_name)
         .join(User, User.id == Driver.user_id)
-        .where(Driver.is_active.is_(True))
+        # Admin accounts get a Driver row auto-provisioned on first use (the
+        # superuser "act as driver" decision), but that's for their own
+        # self-service driver flows only — an admin testing/driving
+        # shouldn't clutter the roster everyone else picks a real driver
+        # from, so this list stays scoped to actual driver accounts.
+        .where(Driver.is_active.is_(True), User.role == "driver")
         .order_by(User.full_name)
     )
     return [
