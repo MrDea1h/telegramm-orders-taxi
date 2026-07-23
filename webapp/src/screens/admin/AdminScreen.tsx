@@ -1,27 +1,97 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { TabStrip } from '../../components/ui/TabStrip'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
-import { StatusBadge } from '../../components/ui/StatusBadge'
 import { Avatar } from '../../components/ui/Avatar'
 import { EmptyState } from '../../components/ui/EmptyState'
 import { formatRelative, formatTime } from '../../lib/format'
-import {
-  adminUsers,
-  driverQueue,
-  topRoutes,
-  upcomingOrder,
-  verificationRequests,
-  weeklyTrips,
-} from '../../data/mock'
+import { admin, ApiError, type AdminUser, type VerificationRequest } from '../../lib/api'
+import { useAppStore } from '../../store/appStore'
+import { driverQueue, topRoutes, upcomingOrder, weeklyTrips } from '../../data/mock'
 import { haptics } from '../../lib/haptics'
 
 type Tab = 'requests' | 'users' | 'orders' | 'stats' | 'settings'
 
+const ROLE_LABEL: Record<AdminUser['role'], string> = {
+  user: 'Сотрудник',
+  driver: 'Водитель',
+  admin: 'Админ',
+}
+
+function ErrorIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M12 9v4m0 4h.01M10.29 3.86l-8.18 14.18A2 2 0 0 0 3.82 21h16.36a2 2 0 0 0 1.71-3.01L13.71 3.86a2 2 0 0 0-3.42 0Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function Spinner() {
+  return (
+    <div className="flex justify-center py-8">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
+  )
+}
+
 export function AdminScreen() {
+  const currentUserId = useAppStore((s) => s.user?.id)
   const [tab, setTab] = useState<Tab>('requests')
-  const [requests, setRequests] = useState(verificationRequests)
+
+  const [requests, setRequests] = useState<VerificationRequest[] | null>(null)
+  const [requestsError, setRequestsError] = useState<string | null>(null)
+  const [rejectReasons, setRejectReasons] = useState<Record<string, string>>({})
+
+  const [users, setUsers] = useState<AdminUser[] | null>(null)
+  const [usersError, setUsersError] = useState<string | null>(null)
+  const [roleError, setRoleError] = useState<string | null>(null)
+
+  useEffect(() => {
+    admin
+      .listVerificationRequests()
+      .then(setRequests)
+      .catch((e: unknown) => setRequestsError(e instanceof ApiError ? e.message : 'Не удалось загрузить'))
+  }, [])
+
+  useEffect(() => {
+    admin
+      .listUsers()
+      .then(setUsers)
+      .catch((e: unknown) => setUsersError(e instanceof ApiError ? e.message : 'Не удалось загрузить'))
+  }, [])
+
+  async function handleApprove(id: string) {
+    haptics.notification('success')
+    await admin.approveVerificationRequest(id)
+    setRequests((rs) => (rs ? rs.filter((x) => x.id !== id) : rs))
+    setUsers((us) => (us ? us.map((u) => (u.id === id ? { ...u, status: 'verified' } : u)) : us))
+  }
+
+  async function handleReject(id: string) {
+    const reason = rejectReasons[id]?.trim()
+    if (!reason) return
+    haptics.impact('medium')
+    await admin.rejectVerificationRequest(id, reason)
+    setRequests((rs) => (rs ? rs.filter((x) => x.id !== id) : rs))
+    setUsers((us) => (us ? us.map((u) => (u.id === id ? { ...u, status: 'blocked' } : u)) : us))
+  }
+
+  async function handleSetRole(userId: string, role: AdminUser['role']) {
+    setRoleError(null)
+    try {
+      const updated = await admin.setUserRole(userId, role)
+      setUsers((us) => (us ? us.map((u) => (u.id === userId ? updated : u)) : us))
+    } catch (e) {
+      setRoleError(e instanceof ApiError ? e.message : 'Не удалось изменить роль')
+    }
+  }
 
   return (
     <div className="flex h-full flex-col bg-[var(--tg-bg)]">
@@ -32,7 +102,7 @@ export function AdminScreen() {
         active={tab}
         onChange={setTab}
         tabs={[
-          { key: 'requests', label: 'Заявки', badge: requests.length },
+          { key: 'requests', label: 'Заявки', badge: requests?.length ?? 0 },
           { key: 'users', label: 'Пользователи' },
           { key: 'orders', label: 'Заказы' },
           { key: 'stats', label: 'Статистика' },
@@ -42,42 +112,47 @@ export function AdminScreen() {
 
       <div className="flex-1 overflow-y-auto p-4">
         {tab === 'requests' &&
-          (requests.length ? (
+          (requests === null ? (
+            requestsError ? (
+              <EmptyState icon={<ErrorIcon />} title="Ошибка загрузки" subtitle={requestsError} />
+            ) : (
+              <Spinner />
+            )
+          ) : requests.length ? (
             <div className="flex flex-col gap-3">
               {requests.map((r) => (
                 <Card key={r.id} className="p-3.5">
                   <div className="flex items-center gap-3">
-                    <Avatar name={r.fullName} color="#7C3AED" size={40} />
+                    <Avatar name={r.full_name ?? r.email ?? '?'} color="#7C3AED" size={40} />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[14px] font-medium text-[var(--tg-text)]">{r.fullName}</p>
+                      <p className="truncate text-[14px] font-medium text-[var(--tg-text)]">
+                        {r.full_name ?? 'Без имени'}
+                      </p>
                       <p className="truncate text-[12px] text-[var(--tg-text-secondary)]">
-                        {r.email ?? r.phone} · {r.tgUsername}
+                        {r.email ?? r.phone ?? (r.telegram_id ? `tg:${r.telegram_id}` : '—')}
                       </p>
                     </div>
                     <span className="shrink-0 text-[11px] text-[var(--tg-text-secondary)]">
-                      {formatRelative(r.requestedAt)}
+                      {formatRelative(r.created_at)}
                     </span>
                   </div>
-                  <div className="mt-3 flex gap-2">
+                  <input
+                    value={rejectReasons[r.id] ?? ''}
+                    onChange={(e) => setRejectReasons((m) => ({ ...m, [r.id]: e.target.value }))}
+                    placeholder="Причина отказа (для отклонения)"
+                    className="mt-3 w-full rounded-xl bg-[var(--tg-surface)] px-3 py-2 text-[13px] text-[var(--tg-text)] outline-none placeholder:text-[var(--tg-text-secondary)]"
+                  />
+                  <div className="mt-2 flex gap-2">
                     <Button
                       variant="danger"
                       size="md"
                       full
-                      onClick={() => {
-                        haptics.impact('medium')
-                        setRequests((rs) => rs.filter((x) => x.id !== r.id))
-                      }}
+                      disabled={!rejectReasons[r.id]?.trim()}
+                      onClick={() => handleReject(r.id)}
                     >
                       Отклонить
                     </Button>
-                    <Button
-                      size="md"
-                      full
-                      onClick={() => {
-                        haptics.notification('success')
-                        setRequests((rs) => rs.filter((x) => x.id !== r.id))
-                      }}
-                    >
+                    <Button size="md" full onClick={() => handleApprove(r.id)}>
                       Одобрить
                     </Button>
                   </div>
@@ -98,34 +173,73 @@ export function AdminScreen() {
 
         {tab === 'users' && (
           <div className="flex flex-col gap-2">
-            {adminUsers.map((u) => (
-              <Card key={u.id} className="flex items-center gap-3 p-3">
-                <Avatar name={u.fullName} color={u.role === 'driver' ? '#3B82F6' : '#7C3AED'} size={36} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-medium text-[var(--tg-text)]">{u.fullName}</p>
-                  <p className="text-[11px] text-[var(--tg-text-secondary)]">
-                    {u.role === 'driver' ? 'Водитель' : u.role === 'admin' ? 'Админ' : 'Сотрудник'} · {u.tripsCount} поездок
-                  </p>
-                </div>
-                <span
-                  className={`rounded-full px-2 py-1 text-[11px] font-medium ${
-                    u.status === 'blocked' ? 'bg-danger/10 text-danger' : 'bg-success/10 text-success'
-                  }`}
-                >
-                  {u.status === 'blocked' ? 'Заблокирован' : 'Активен'}
-                </span>
-              </Card>
-            ))}
+            {roleError && (
+              <p className="rounded-xl bg-danger/10 px-3 py-2 text-[12px] text-danger">{roleError}</p>
+            )}
+            {users === null ? (
+              usersError ? (
+                <EmptyState icon={<ErrorIcon />} title="Ошибка загрузки" subtitle={usersError} />
+              ) : (
+                <Spinner />
+              )
+            ) : (
+              users.map((u) => (
+                <Card key={u.id} className="flex flex-col gap-2 p-3">
+                  <div className="flex items-center gap-3">
+                    <Avatar
+                      name={u.full_name ?? u.email ?? '?'}
+                      color={u.role === 'driver' ? '#3B82F6' : u.role === 'admin' ? '#F59E0B' : '#7C3AED'}
+                      size={36}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-medium text-[var(--tg-text)]">
+                        {u.full_name ?? 'Без имени'}
+                        {u.id === currentUserId && ' (вы)'}
+                      </p>
+                      <p className="truncate text-[11px] text-[var(--tg-text-secondary)]">
+                        {u.email ?? u.phone ?? (u.telegram_id ? `tg:${u.telegram_id}` : '—')}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-medium ${
+                        u.status === 'blocked'
+                          ? 'bg-danger/10 text-danger'
+                          : u.status === 'pending'
+                            ? 'bg-black/5 text-[var(--tg-text-secondary)] dark:bg-white/10'
+                            : 'bg-success/10 text-success'
+                      }`}
+                    >
+                      {u.status === 'blocked' ? 'Заблокирован' : u.status === 'pending' ? 'Ожидает' : 'Активен'}
+                    </span>
+                  </div>
+                  <div className="flex gap-1.5">
+                    {(['user', 'driver', 'admin'] as const).map((role) => (
+                      <Button
+                        key={role}
+                        variant={u.role === role ? 'primary' : 'secondary'}
+                        disabled={u.id === currentUserId}
+                        className="!h-8 flex-1 !px-2 !text-[12px]"
+                        onClick={() => handleSetRole(u.id, role)}
+                      >
+                        {ROLE_LABEL[role]}
+                      </Button>
+                    ))}
+                  </div>
+                </Card>
+              ))
+            )}
           </div>
         )}
 
         {tab === 'orders' && (
           <div className="flex flex-col gap-2">
+            <p className="mb-1 text-[11px] text-[var(--tg-text-secondary)]">
+              Демо-данные — реальные заказы появятся после M3
+            </p>
             {[upcomingOrder, ...driverQueue].map((o) => (
               <Card key={o.id} className="p-3">
                 <div className="flex items-center justify-between">
                   <p className="text-[13px] font-medium text-[var(--tg-text)]">{formatTime(o.scheduledAt)}</p>
-                  <StatusBadge status={o.status} />
                 </div>
                 <p className="mt-1 truncate text-[12px] text-[var(--tg-text-secondary)]">
                   {o.from.addressText} → {o.to.addressText}
@@ -138,6 +252,9 @@ export function AdminScreen() {
 
         {tab === 'stats' && (
           <div className="flex flex-col gap-4">
+            <p className="text-[11px] text-[var(--tg-text-secondary)]">
+              Демо-данные — реальная статистика появится после M3
+            </p>
             <Card className="p-4">
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-[13px] font-medium text-[var(--tg-text)]">Поездки за неделю</p>

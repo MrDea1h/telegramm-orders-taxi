@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -12,7 +13,7 @@ from api.app.deps import require_role
 from api.app.errors import AppError
 from shared.auth_jwt import revoke_all_sessions
 from shared.db.engine import get_session
-from shared.db.models import User, UserEvent
+from shared.db.models import Driver, User, UserEvent
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
@@ -29,6 +30,21 @@ class VerificationRequestOut(BaseModel):
 
 class RejectRequest(BaseModel):
     reason: str
+
+
+class AdminUserOut(BaseModel):
+    id: uuid.UUID
+    full_name: str | None
+    email: str | None
+    phone: str | None
+    telegram_id: int | None
+    role: str
+    status: str
+    created_at: dt.datetime
+
+
+class SetRoleRequest(BaseModel):
+    role: Literal["user", "driver", "admin"]
 
 
 @router.get("/verification-requests", response_model=list[VerificationRequestOut])
@@ -88,3 +104,52 @@ async def reject_verification_request(
     await session.commit()
     await revoke_all_sessions(user.id)
     return {"id": str(user.id), "status": user.status}
+
+
+@router.get("/users", response_model=list[AdminUserOut])
+async def list_users(
+    admin: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> list[User]:
+    result = await session.execute(select(User).order_by(User.created_at.desc()))
+    return list(result.scalars().all())
+
+
+@router.patch("/users/{user_id}/role", response_model=AdminUserOut)
+async def set_user_role(
+    user_id: uuid.UUID,
+    body: SetRoleRequest,
+    admin: User = Depends(require_role("admin")),
+    session: AsyncSession = Depends(get_session),
+) -> User:
+    user = await session.get(User, user_id)
+    if user is None:
+        raise AppError(404, "NOT_FOUND", "User not found")
+
+    if user.id == admin.id and body.role != "admin":
+        # This is currently the only self-serve way to assign roles at all —
+        # an admin demoting themselves would have no way back short of a
+        # direct DB update, so it's blocked outright rather than allowed.
+        raise AppError(400, "SELF_DEMOTION_FORBIDDEN", "You cannot change your own role")
+
+    old_role = user.role
+    user.role = body.role
+
+    if body.role == "driver":
+        existing_driver = (
+            await session.execute(select(Driver).where(Driver.user_id == user.id))
+        ).scalar_one_or_none()
+        if existing_driver is None:
+            session.add(Driver(user_id=user.id))
+
+    session.add(
+        UserEvent(
+            user_id=user.id,
+            actor_id=admin.id,
+            event_type="role_changed",
+            payload={"from": old_role, "to": body.role},
+        )
+    )
+    await session.commit()
+    await session.refresh(user)
+    return user

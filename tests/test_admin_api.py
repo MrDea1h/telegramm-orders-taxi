@@ -177,3 +177,69 @@ def test_approve_marks_verified(client, captured_emails):
         "/v1/auth/login", json={"email": "olga@example.com", "password": "correcthorse123"}
     )
     assert r.json()["user"]["status"] == "verified"
+
+
+def test_list_users_returns_all(client, captured_emails):
+    admin_token = _admin_token(client)
+    client.post(
+        "/v1/auth/register",
+        json={"email": "irina@example.com", "password": "correcthorse123", "full_name": "Irina"},
+    )
+
+    r = client.get("/v1/admin/users", headers={"Authorization": f"Bearer {admin_token}"})
+    assert r.status_code == 200
+    emails = {u["email"] for u in r.json()}
+    assert {"admin@example.com", "irina@example.com"} <= emails
+
+
+def test_set_role_to_driver_creates_driver_row(client, captured_emails):
+    import asyncio
+
+    from sqlalchemy import select
+
+    from shared.db.engine import get_sessionmaker
+    from shared.db.models import Driver
+
+    admin_token = _admin_token(client)
+    client.post(
+        "/v1/auth/register",
+        json={"email": "dmitry@example.com", "password": "correcthorse123", "full_name": "Dmitry"},
+    )
+    code = _extract_code(captured_emails)
+    client.post("/v1/auth/verify-email", json={"email": "dmitry@example.com", "code": code})
+    user_id = asyncio.run(_get_user_id("dmitry@example.com"))
+
+    r = client.patch(
+        f"/v1/admin/users/{user_id}/role",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"role": "driver"},
+    )
+    assert r.status_code == 200
+    assert r.json()["role"] == "driver"
+
+    async def _driver_exists() -> bool:
+        async with get_sessionmaker()() as session:
+            driver = (
+                await session.execute(select(Driver).where(Driver.user_id == user_id))
+            ).scalar_one_or_none()
+            return driver is not None
+
+    assert asyncio.run(_driver_exists())
+
+    payload = asyncio.run(_get_event_payload("role_changed"))
+    assert payload == {"from": "user", "to": "driver"}
+
+
+def test_admin_cannot_change_own_role(client, captured_emails):
+    import asyncio
+
+    admin_token = _admin_token(client)
+    admin_id = asyncio.run(_get_user_id("admin@example.com"))
+
+    r = client.patch(
+        f"/v1/admin/users/{admin_id}/role",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"role": "user"},
+    )
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "SELF_DEMOTION_FORBIDDEN"

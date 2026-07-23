@@ -148,6 +148,54 @@ export const auth = {
   me: () => apiFetch<MeResponse>('/v1/auth/me', { auth: true }),
 }
 
+export interface VerificationRequest {
+  id: string
+  full_name: string | null
+  email: string | null
+  phone: string | null
+  telegram_id: number | null
+  email_confirmed_at: string | null
+  created_at: string
+}
+
+export interface AdminUser {
+  id: string
+  full_name: string | null
+  email: string | null
+  phone: string | null
+  telegram_id: number | null
+  role: 'user' | 'driver' | 'admin'
+  status: 'pending' | 'verified' | 'blocked'
+  created_at: string
+}
+
+export const admin = {
+  listVerificationRequests: () =>
+    apiFetch<VerificationRequest[]>('/v1/admin/verification-requests', { auth: true }),
+
+  approveVerificationRequest: (userId: string) =>
+    apiFetch<{ id: string; status: string }>(`/v1/admin/verification-requests/${userId}/approve`, {
+      method: 'POST',
+      auth: true,
+    }),
+
+  rejectVerificationRequest: (userId: string, reason: string) =>
+    apiFetch<{ id: string; status: string }>(`/v1/admin/verification-requests/${userId}/reject`, {
+      method: 'POST',
+      auth: true,
+      body: { reason },
+    }),
+
+  listUsers: () => apiFetch<AdminUser[]>('/v1/admin/users', { auth: true }),
+
+  setUserRole: (userId: string, role: 'user' | 'driver' | 'admin') =>
+    apiFetch<AdminUser>(`/v1/admin/users/${userId}/role`, {
+      method: 'PATCH',
+      auth: true,
+      body: { role },
+    }),
+}
+
 export const push = {
   subscribe: (endpoint: string, keys: { p256dh: string; auth: string }, userAgent?: string) =>
     apiFetch<{ id: string }>('/v1/push/subscribe', {
