@@ -12,6 +12,14 @@
  * Yandex's documented headless variant, meant exactly for "get route info,
  * don't render it" — no map required.
  *
+ * The whole thing — script load, `ymaps.ready()`, and the route request
+ * itself — races against ROUTE_TIMEOUT_MS. Any of those three steps can
+ * hang indefinitely in the wild (slow/blocked script load, a `ready()`
+ * callback that never fires for a module-loading reason we can't see from
+ * here, a routing request stuck on the network) — a timeout that only
+ * wrapped the last step left the first two able to hang the whole ETA
+ * step on "..." forever, which is exactly what shipped once already.
+ *
  * Renders nothing without VITE_YANDEX_MAPS_API_KEY set — every caller must
  * treat a null return as "fall back to the backend's haversine estimate",
  * never as an error.
@@ -74,7 +82,7 @@ export interface RouteEtaResult {
 
 const ROUTE_TIMEOUT_MS = 8000
 
-export async function computeRouteEta(
+async function computeRouteEtaUnbounded(
   from: string | [number, number],
   to: string | [number, number],
 ): Promise<RouteEtaResult | null> {
@@ -87,7 +95,7 @@ export async function computeRouteEta(
   })
   if (!ymaps) return null
 
-  const routePromise = new Promise<RouteEtaResult | null>((resolve) => {
+  return new Promise<RouteEtaResult | null>((resolve) => {
     ymaps.route([from, to], { mapStateAutoApply: false, routingMode: 'auto' }).then(
       (route) => {
         const distanceMeters = route.getLength()
@@ -107,13 +115,18 @@ export async function computeRouteEta(
       },
     )
   })
+}
 
+export async function computeRouteEta(
+  from: string | [number, number],
+  to: string | [number, number],
+): Promise<RouteEtaResult | null> {
   const timeoutPromise = new Promise<null>((resolve) => {
     setTimeout(() => {
-      console.warn('[yandexMaps] ymaps.route() timed out after', ROUTE_TIMEOUT_MS, 'ms')
+      console.warn('[yandexMaps] computeRouteEta timed out after', ROUTE_TIMEOUT_MS, 'ms')
       resolve(null)
     }, ROUTE_TIMEOUT_MS)
   })
 
-  return Promise.race([routePromise, timeoutPromise])
+  return Promise.race([computeRouteEtaUnbounded(from, to), timeoutPromise])
 }

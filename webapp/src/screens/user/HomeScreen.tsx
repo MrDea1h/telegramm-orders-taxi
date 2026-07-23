@@ -20,6 +20,11 @@ function HistoryIcon() {
   )
 }
 
+// Statuses where the ball is in someone else's court and the user should
+// notice — the driver hasn't accepted yet, or has proposed a different time
+// that needs the user's own accept/decline.
+const AWAITING_CHANGE_STATUSES = new Set(['pending_driver', 'driver_countered'])
+
 export function HomeScreen() {
   const goTo = useAppStore((s) => s.goTo)
   const openOrder = useAppStore((s) => s.openOrder)
@@ -28,6 +33,7 @@ export function HomeScreen() {
   const { data: history } = useOrderHistory()
 
   const nextOrder = upcoming?.[0]
+  const otherActiveOrders = upcoming?.slice(1) ?? []
   // full_name is stored "Фамилия Имя" (see the onboarding profile step) —
   // greet by the last token, not the first.
   const givenName = user?.full_name?.trim().split(/\s+/).slice(-1)[0]
@@ -53,10 +59,19 @@ export function HomeScreen() {
       <div className="-mt-5 flex flex-col gap-4 px-4">
         {nextOrder && (
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
-            <Card className="overflow-hidden p-0" onClick={() => openOrder(nextOrder.id)}>
+            <Card
+              className={`overflow-hidden p-0 ${
+                AWAITING_CHANGE_STATUSES.has(nextOrder.status) ? 'ring-2 ring-warning' : ''
+              }`}
+              onClick={() => openOrder(nextOrder.id)}
+            >
               <div className="cursor-pointer p-4">
                 <div className="mb-3 flex items-center justify-between">
-                  <p className="text-[13px] font-medium text-[var(--tg-text-secondary)]">Ближайшая поездка</p>
+                  <p className="text-[13px] font-medium text-[var(--tg-text-secondary)]">
+                    {AWAITING_CHANGE_STATUSES.has(nextOrder.status)
+                      ? 'Требует вашего внимания'
+                      : 'Ближайшая поездка'}
+                  </p>
                   <StatusBadge status={nextOrder.status} />
                 </div>
                 <RouteMap compact />
@@ -91,11 +106,43 @@ export function HomeScreen() {
           </motion.div>
         )}
 
+        {otherActiveOrders.length > 0 && (
+          <div className="flex flex-col gap-2">
+            {otherActiveOrders.map((order, i) => (
+              <motion.div
+                key={order.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.08 + i * 0.05 }}
+              >
+                <Card
+                  className={`cursor-pointer p-3 ${
+                    AWAITING_CHANGE_STATUSES.has(order.status) ? 'ring-2 ring-warning' : ''
+                  }`}
+                  onClick={() => openOrder(order.id)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium text-[var(--tg-text)]">
+                        {order.from_address} → {order.to_address}
+                      </p>
+                      <p className="text-[11px] text-[var(--tg-text-secondary)]">
+                        {formatRelative(order.scheduled_at)}
+                      </p>
+                    </div>
+                    <StatusBadge status={order.status} />
+                  </div>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+        )}
+
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className={nextOrder ? undefined : 'mt-[16vh]'}
+          className={nextOrder ? undefined : 'mt-[6vh]'}
         >
           <Button full size="lg" onClick={() => goTo('wizard')} className="text-[16px]">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -105,7 +152,7 @@ export function HomeScreen() {
           </Button>
         </motion.div>
 
-        <div className={nextOrder ? undefined : 'mt-[6vh]'}>
+        <div className={nextOrder ? undefined : 'mt-2'}>
           <div className="mb-2 flex items-center justify-between px-1">
             <p className="text-[13px] font-medium text-[var(--tg-text-secondary)]">История поездок</p>
             {!!history?.length && (
