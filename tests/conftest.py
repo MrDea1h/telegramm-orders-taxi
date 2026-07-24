@@ -84,6 +84,24 @@ async def _clean_tables(_migrate):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _no_real_telegram_sends(monkeypatch):
+    """Every order-notification code path funnels through this one
+    function — default it to a no-op so a sandboxed/offline test
+    environment can't turn an unrelated test into a real network attempt
+    to Telegram. A blocked DNS lookup isn't reliably bounded by that
+    call's own asyncio timeout (asyncio.wait_for can't interrupt a
+    getaddrinfo() already running in a worker thread), so several such
+    calls in one run can leak threads and stall unrelated later tests.
+    Tests asserting on actual notification content monkeypatch this same
+    target themselves, which overrides this default within that test."""
+
+    async def _noop(chat_id, text, reply_markup=None):
+        return None
+
+    monkeypatch.setattr("shared.order_notify.send_message", _noop)
+
+
 @pytest.fixture
 def client():
     """Lazy import (after the env-setting fixtures above have already run)

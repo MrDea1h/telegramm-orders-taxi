@@ -325,8 +325,13 @@ export interface Order {
   driver_car_color: string | null
 }
 
+export interface SlotOut {
+  time: string
+  available: boolean
+}
+
 export interface SlotsResult {
-  times: string[]
+  slots: SlotOut[]
   booking_horizon_days: number
   min_lead_min: number
 }

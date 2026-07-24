@@ -16,7 +16,7 @@ from api.app.orders_api import TERMINAL_STATUSES, OrderOut, serialize_order
 from shared.auth_jwt import revoke_all_sessions
 from shared.db.engine import get_session
 from shared.db.models import Driver, Order, OrderEvent, User, UserEvent
-from shared.order_notify import notify_order_cancelled
+from shared.order_notify import notify_new_assignment, notify_order_cancelled
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
@@ -240,6 +240,20 @@ async def assign_order(
         ) from e
 
     await session.refresh(order)
+
+    if body.driver_id is not None:
+        driver_chat_id = (
+            await session.execute(
+                select(User.telegram_id)
+                .join(Driver, Driver.user_id == User.id)
+                .where(Driver.id == body.driver_id)
+            )
+        ).scalar_one_or_none()
+        if driver_chat_id is not None:
+            client = await session.get(User, order.user_id)
+            if client is not None:
+                await notify_new_assignment(driver_chat_id, order, client.full_name, client.phone)
+
     return await _serialize_admin(order, session)
 
 

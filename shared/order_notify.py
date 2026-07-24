@@ -75,3 +75,19 @@ async def notify_driver_approaching(chat_id: int, order: Order) -> None:
     await _notify(
         chat_id, f"📍 Водитель будет по адресу {order.from_address} в течение 5–10 минут."
     )
+
+
+async def notify_driver_arrived(chat_id: int, order: Order) -> None:
+    await _notify(chat_id, f"📍 Водитель на месте: {order.from_address}.")
+
+
+async def notify_new_assignment(
+    chat_id: int, order: Order, client_name: str, client_phone: str | None
+) -> None:
+    phone_line = f"\nТелефон: {client_phone}" if client_phone else ""
+    await _notify(
+        chat_id,
+        f"🆕 Вам назначена новая поездка на {_fmt_time(order.scheduled_at)}.\n"
+        f"{order.from_address} → {order.to_address}\n"
+        f"Клиент: {client_name}{phone_line}",
+    )

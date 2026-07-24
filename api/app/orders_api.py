@@ -22,12 +22,14 @@ from shared.openrouteservice import route_eta_seconds as ors_route_eta_seconds
 from shared.order_notify import (
     notify_counter_accepted,
     notify_driver_approaching,
+    notify_driver_arrived,
     notify_driver_departed,
+    notify_new_assignment,
     notify_order_accepted,
     notify_order_cancelled,
     notify_order_rescheduled,
 )
-from shared.slots import compute_slots
+from shared.slots import compute_slot_grid
 
 router = APIRouter(prefix="/v1/orders", tags=["orders"])
 
@@ -136,8 +138,13 @@ class CounterResponseRequest(BaseModel):
     accept: bool
 
 
+class SlotOut(BaseModel):
+    time: dt.datetime
+    available: bool
+
+
 class SlotsOut(BaseModel):
-    times: list[dt.datetime]
+    slots: list[SlotOut]
     booking_horizon_days: int
     min_lead_min: int
 
@@ -255,7 +262,7 @@ async def get_slots(
         # Weekday-only product — no candidate driver, however scheduled,
         # can ever have a slot on Saturday/Sunday. Skip the DB work entirely.
         return SlotsOut(
-            times=[],
+            slots=[],
             booking_horizon_days=settings.ORDER_BOOKING_HORIZON_DAYS,
             min_lead_min=settings.ORDER_MIN_LEAD_MIN,
         )
@@ -284,7 +291,11 @@ async def get_slots(
     day_end_utc = (day_start_local + dt.timedelta(days=1)).astimezone(dt.UTC)
     window_pad = dt.timedelta(hours=4)
 
-    all_times: set[dt.datetime] = set()
+    # A grid time is shown if it's a real candidate for at least one
+    # driver, and available overall if at least one of those drivers can
+    # actually take it — so a time already booked with one driver but
+    # still open with another still shows up as bookable, not disabled.
+    merged_grid: dict[dt.datetime, bool] = {}
     for driver in candidate_drivers:
         schedule_rows = (
             (
@@ -355,7 +366,7 @@ async def get_slots(
             busy_end = o.scheduled_at + dt.timedelta(minutes=o.est_duration_min + gap_after)
             busy_ranges.append((busy_start, busy_end))
 
-        slots = compute_slots(
+        grid = compute_slot_grid(
             date=date,
             schedule_windows=schedule_windows,
             busy_ranges=busy_ranges,
@@ -366,10 +377,11 @@ async def get_slots(
             now=now,
             tz=tz,
         )
-        all_times.update(slots)
+        for candidate_time, available in grid:
+            merged_grid[candidate_time] = merged_grid.get(candidate_time, False) or available
 
     return SlotsOut(
-        times=sorted(all_times),
+        slots=[SlotOut(time=t, available=a) for t, a in sorted(merged_grid.items())],
         booking_horizon_days=settings.ORDER_BOOKING_HORIZON_DAYS,
         min_lead_min=settings.ORDER_MIN_LEAD_MIN,
     )
@@ -474,6 +486,18 @@ async def create_order(
     )
     await session.commit()
     await session.refresh(order)
+
+    if order.driver_id is not None:
+        driver_chat_id = (
+            await session.execute(
+                select(User.telegram_id)
+                .join(Driver, Driver.user_id == User.id)
+                .where(Driver.id == order.driver_id)
+            )
+        ).scalar_one_or_none()
+        if driver_chat_id is not None:
+            await notify_new_assignment(driver_chat_id, order, user.full_name, user.phone)
+
     return await serialize_order(order, session)
 
 
@@ -704,6 +728,8 @@ async def transition_order(
             await notify_order_rescheduled(owner_chat_id, order)
         elif body.action == "depart":
             await notify_driver_departed(owner_chat_id, order)
+        elif body.action == "arrive":
+            await notify_driver_arrived(owner_chat_id, order)
 
     return await serialize_order(order, session)
 

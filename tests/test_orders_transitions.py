@@ -223,6 +223,11 @@ def test_transition_and_cancel_send_telegram_notifications(client, monkeypatch):
         chat_id == user_telegram_id and "5" in text and "10" in text for chat_id, text in sent
     ), sent
 
+    sent.clear()
+    r = _transition(client, driver_tokens, order["id"], "arrive")
+    assert r.status_code == 200
+    assert any(chat_id == user_telegram_id and "месте" in text for chat_id, text in sent), sent
+
     # A user-initiated cancel on a second, already-accepted order must
     # notify the assigned driver, not the user themself. days=2 vs days=9 —
     # a full week apart — so the Mon-Fri bump in _next_business_datetime
@@ -234,6 +239,61 @@ def test_transition_and_cancel_send_telegram_notifications(client, monkeypatch):
     r = client.post(f"/v1/orders/{order2['id']}/cancel", headers=_auth_header(user_tokens), json={})
     assert r.status_code == 200
     assert any(chat_id == 1411 and "отмен" in text for chat_id, text in sent), sent
+
+
+def test_create_order_with_driver_notifies_driver_of_new_assignment(client, monkeypatch):
+    sent: list[tuple[int, str]] = []
+
+    async def fake_send_message(chat_id, text, reply_markup=None):
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr("shared.order_notify.send_message", fake_send_message)
+
+    user_tokens = _verified_user(client, 1412)
+    r = client.patch(
+        "/v1/auth/profile",
+        headers=_auth_header(user_tokens),
+        json={"full_name": "Иванов Иван", "phone": "+79991234567"},
+    )
+    assert r.status_code == 200
+    driver_telegram_id = 1413
+    _driver_tokens, driver_id = _make_driver(client, driver_telegram_id)
+
+    _create_order(client, user_tokens, driver_id=driver_id)
+
+    assert any(
+        chat_id == driver_telegram_id and "Иванов Иван" in text and "+79991234567" in text
+        for chat_id, text in sent
+    ), sent
+
+
+def test_admin_reassign_notifies_newly_assigned_driver(client, monkeypatch):
+    sent: list[tuple[int, str]] = []
+
+    async def fake_send_message(chat_id, text, reply_markup=None):
+        sent.append((chat_id, text))
+
+    monkeypatch.setattr("shared.order_notify.send_message", fake_send_message)
+
+    user_tokens = _verified_user(client, 1414)
+    order = _create_order(client, user_tokens)  # "any driver" — unassigned at creation
+
+    driver_telegram_id = 1415
+    _driver_tokens, driver_id = _make_driver(client, driver_telegram_id)
+    admin_token = _admin_token(client)
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    sent.clear()
+    r = client.patch(
+        f"/v1/admin/orders/{order['id']}/assign",
+        headers=admin_headers,
+        json={"driver_id": driver_id},
+    )
+    assert r.status_code == 200
+    assert any(
+        chat_id == driver_telegram_id and "назначена новая поездка" in text
+        for chat_id, text in sent
+    ), sent
 
 
 def test_concurrent_accept_race_only_one_wins(client):

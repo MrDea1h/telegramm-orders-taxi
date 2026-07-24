@@ -300,7 +300,7 @@ def test_slots_reflect_real_transit_time_from_previous_dropoff(client, monkeypat
         },
     )
     assert r.status_code == 200
-    times = [dt.datetime.fromisoformat(t) for t in r.json()["times"]]
+    times = [dt.datetime.fromisoformat(s["time"]) for s in r.json()["slots"] if s["available"]]
 
     # The all-day schedule legitimately offers slots before the existing
     # booking too (whatever time of day _future_iso(1) landed on) — only the
@@ -325,6 +325,63 @@ def test_slots_reflect_real_transit_time_from_previous_dropoff(client, monkeypat
         too_early_cutoff <= t < too_early_cutoff + dt.timedelta(minutes=45)
         for t in after_order_times
     ), [t.isoformat() for t in after_order_times]
+
+
+def test_taken_slot_appears_disabled_not_omitted(client):
+    admin_token = _admin_token(client)
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    driver_tokens = _login(client, 1350, "Driver")
+    driver_user_id = driver_tokens["user"]["id"]
+    r = client.patch(
+        f"/v1/admin/users/{driver_user_id}/role", headers=admin_headers, json={"role": "driver"}
+    )
+    assert r.status_code == 200
+    r = client.post(
+        f"/v1/admin/verification-requests/{driver_user_id}/approve", headers=admin_headers
+    )
+    assert r.status_code == 200
+    driver_id = asyncio.run(_get_driver_id(driver_user_id))
+    driver_headers = _auth_header(driver_tokens)
+
+    next_weekday_local = dt.datetime.now(_COMPANY_TZ) + dt.timedelta(days=1)
+    while next_weekday_local.weekday() >= 5:
+        next_weekday_local += dt.timedelta(days=1)
+    order_time = next_weekday_local.replace(hour=10, minute=0, second=0, microsecond=0)
+    weekday = order_time.weekday()
+    r = client.put(
+        "/v1/drivers/me/schedule",
+        headers=driver_headers,
+        json=[{"weekday": weekday, "start_time": "09:00:00", "end_time": "12:00:00"}],
+    )
+    assert r.status_code == 200
+
+    user_tokens = _verified_user(client, 1351)
+    r = client.post(
+        "/v1/orders",
+        headers=_auth_header(user_tokens),
+        json=_base_body(
+            scheduled_at=order_time.isoformat(), driver_id=driver_id, est_duration_min=30
+        ),
+    )
+    assert r.status_code == 201
+
+    date_str = order_time.astimezone(_COMPANY_TZ).date().isoformat()
+    r = client.get(
+        "/v1/orders/slots",
+        headers=_auth_header(user_tokens),
+        params={"date": date_str, "driver_id": driver_id, "duration_min": 30},
+    )
+    assert r.status_code == 200
+    slots = r.json()["slots"]
+
+    taken = next((s for s in slots if dt.datetime.fromisoformat(s["time"]) == order_time), None)
+    assert taken is not None, "the booked slot should still appear in the grid, just disabled"
+    assert taken["available"] is False
+
+    free = [
+        s for s in slots if s["available"] and dt.datetime.fromisoformat(s["time"]) != order_time
+    ]
+    assert free, "expected at least one still-free slot elsewhere in the same window"
 
 
 def test_slots_bidirectional_gap_matches_worked_example(client, monkeypatch):
@@ -409,7 +466,7 @@ def test_slots_bidirectional_gap_matches_worked_example(client, monkeypatch):
         },
     )
     assert r.status_code == 200
-    times = [dt.datetime.fromisoformat(t) for t in r.json()["times"]]
+    times = [dt.datetime.fromisoformat(s["time"]) for s in r.json()["slots"] if s["available"]]
     local_times = {t.astimezone(_COMPANY_TZ).strftime("%H:%M") for t in times}
 
     # Last legal "before" slot: 09:30 (ends 09:50, safely inside the 10:10

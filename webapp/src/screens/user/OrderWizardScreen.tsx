@@ -537,19 +537,22 @@ export function OrderWizardScreen() {
                   <div className="flex justify-center py-6">
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                   </div>
-                ) : slots?.times.length ? (
+                ) : slots?.slots.length ? (
                   <div className="grid grid-cols-3 gap-2">
-                    {slots.times.map((t) => (
+                    {slots.slots.map(({ time: t, available }) => (
                       <button
                         key={t}
+                        disabled={!available}
                         onClick={() => {
                           haptics.selection()
                           setSlotTime(t)
                         }}
                         className={`rounded-xl border py-2.5 text-[14px] font-medium transition-colors ${
-                          slotTime === t
-                            ? 'border-primary bg-primary text-white'
-                            : 'border-[var(--tg-border)] text-[var(--tg-text)] active:bg-black/5 dark:active:bg-white/5'
+                          !available
+                            ? 'cursor-not-allowed border-[var(--tg-border)] text-[var(--tg-text-secondary)] opacity-40 line-through'
+                            : slotTime === t
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-[var(--tg-border)] text-[var(--tg-text)] active:bg-black/5 dark:active:bg-white/5'
                         }`}
                       >
                         {new Date(t).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}

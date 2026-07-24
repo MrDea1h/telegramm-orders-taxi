@@ -1,7 +1,7 @@
 import datetime as dt
 from zoneinfo import ZoneInfo
 
-from shared.slots import compute_slots
+from shared.slots import compute_slot_grid, compute_slots
 
 TZ = ZoneInfo("Europe/Moscow")
 DATE = dt.date(2026, 8, 3)  # a Monday, far enough in the future to ignore lead-time in most cases
@@ -120,3 +120,42 @@ def test_occupied_span_must_fit_entirely_before_window_end():
         tz=TZ,
     )
     assert slots == [_local(9, 0)]
+
+
+def test_grid_includes_taken_slots_as_unavailable_not_omitted():
+    busy_start = _local(10, 0)
+    busy_end = busy_start + dt.timedelta(minutes=45)
+    grid = compute_slot_grid(
+        date=DATE,
+        schedule_windows=[(dt.time(9, 0), dt.time(12, 0))],
+        busy_ranges=[(busy_start, busy_end)],
+        duration_min=30,
+        buffer_min=15,
+        step_min=30,
+        min_lead_min=30,
+        now=FAR_PAST_NOW,
+        tz=TZ,
+    )
+    as_dict = dict(grid)
+    # Same candidates as test_busy_range_removes_overlapping_slots, but here
+    # the busy ones must still be present in the grid — just flagged
+    # unavailable — instead of missing entirely.
+    assert as_dict[_local(9, 0)] is True
+    assert as_dict[_local(9, 30)] is False
+    assert as_dict[_local(10, 0)] is False
+    assert as_dict[_local(10, 30)] is False
+    assert as_dict[_local(11, 0)] is True
+
+    # compute_slots stays the available-only view over the same grid.
+    available_only = compute_slots(
+        date=DATE,
+        schedule_windows=[(dt.time(9, 0), dt.time(12, 0))],
+        busy_ranges=[(busy_start, busy_end)],
+        duration_min=30,
+        buffer_min=15,
+        step_min=30,
+        min_lead_min=30,
+        now=FAR_PAST_NOW,
+        tz=TZ,
+    )
+    assert available_only == [t for t, available in grid if available]
