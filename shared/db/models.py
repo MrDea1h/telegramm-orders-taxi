@@ -185,6 +185,13 @@ class Order(Base):
     # and proposes a different one instead of rejecting outright (status
     # becomes 'driver_countered'); cleared once the employee accepts/declines.
     proposed_scheduled_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
+    # "Туда-обратно" — driver waits at to_address for wait_time_min then
+    # returns to from_address. est_duration_min already carries the total
+    # occupied time (one-way x2 + wait) that scheduling code needs; these
+    # two are for display plus the one place scheduling logic can't derive
+    # from est_duration_min alone (see get_slots' gap-to-next-booking calc).
+    is_round_trip: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    wait_time_min: Mapped[int | None] = mapped_column(SmallInteger)
 
 
 class OrderEvent(Base):

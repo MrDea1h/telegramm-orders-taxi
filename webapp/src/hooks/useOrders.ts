@@ -25,10 +25,23 @@ export function useSlots(
   fromLon?: number,
   toLat?: number,
   toLon?: number,
+  isRoundTrip?: boolean,
 ) {
   return useQuery({
-    queryKey: ['orders', 'slots', date, driverId, durationMin, fromLat, fromLon, toLat, toLon],
-    queryFn: () => orders.slots(date!, driverId, durationMin, fromLat, fromLon, toLat, toLon),
+    queryKey: [
+      'orders',
+      'slots',
+      date,
+      driverId,
+      durationMin,
+      fromLat,
+      fromLon,
+      toLat,
+      toLon,
+      isRoundTrip,
+    ],
+    queryFn: () =>
+      orders.slots(date!, driverId, durationMin, fromLat, fromLon, toLat, toLon, isRoundTrip),
     enabled: !!date,
   })
 }

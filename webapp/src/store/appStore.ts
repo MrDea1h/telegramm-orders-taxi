@@ -3,7 +3,7 @@ import type { Role } from '../data/types'
 import type { MeResponse, TokenPair } from '../lib/api'
 import { REFRESH_TOKEN_STORAGE_KEY } from '../lib/api'
 
-export type UserScreen = 'onboarding' | 'home' | 'wizard' | 'orderDetail'
+export type UserScreen = 'onboarding' | 'home' | 'wizard' | 'orderDetail' | 'addresses'
 export type DriverScreen = 'today' | 'schedule'
 export type AdminScreen = 'admin'
 

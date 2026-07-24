@@ -384,6 +384,127 @@ def test_taken_slot_appears_disabled_not_omitted(client):
     assert free, "expected at least one still-free slot elsewhere in the same window"
 
 
+def test_create_round_trip_order_defaults_and_respects_wait_time(client):
+    tokens = _verified_user(client, 1360)
+    headers = _auth_header(tokens)
+
+    r = client.post(
+        "/v1/orders",
+        headers=headers,
+        json=_base_body(is_round_trip=True, est_duration_min=75),
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["is_round_trip"] is True
+    assert body["wait_time_min"] == 15  # default when omitted
+
+    r = client.post(
+        "/v1/orders",
+        headers=headers,
+        json=_base_body(is_round_trip=True, wait_time_min=25, est_duration_min=90),
+    )
+    assert r.status_code == 201
+    assert r.json()["wait_time_min"] == 25
+
+    r = client.post("/v1/orders", headers=headers, json=_base_body())
+    assert r.status_code == 201
+    body = r.json()
+    assert body["is_round_trip"] is False
+    assert body["wait_time_min"] is None
+
+
+def test_round_trip_booking_uses_origin_as_effective_dropoff_for_next_gap(client, monkeypatch):
+    # A round trip ends back at from_address (the driver waits, then
+    # returns), not to_address — the gap check against the NEXT booking
+    # must reflect that. Mock ORS with two very different transit times
+    # for "from A" vs "from B" to C, so using the wrong reference point
+    # would produce a visibly different (and wrong) cutoff.
+    admin_token = _admin_token(client)
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    driver_tokens = _login(client, 1361, "Driver")
+    driver_user_id = driver_tokens["user"]["id"]
+    r = client.patch(
+        f"/v1/admin/users/{driver_user_id}/role", headers=admin_headers, json={"role": "driver"}
+    )
+    assert r.status_code == 200
+    r = client.post(
+        f"/v1/admin/verification-requests/{driver_user_id}/approve", headers=admin_headers
+    )
+    assert r.status_code == 200
+    driver_id = asyncio.run(_get_driver_id(driver_user_id))
+    driver_headers = _auth_header(driver_tokens)
+
+    next_weekday_local = dt.datetime.now(_COMPANY_TZ) + dt.timedelta(days=1)
+    while next_weekday_local.weekday() >= 5:
+        next_weekday_local += dt.timedelta(days=1)
+    order_time = next_weekday_local.replace(hour=11, minute=0, second=0, microsecond=0)
+    weekday = order_time.weekday()
+    r = client.put(
+        "/v1/drivers/me/schedule",
+        headers=driver_headers,
+        json=[{"weekday": weekday, "start_time": "00:00:00", "end_time": "23:30:00"}],
+    )
+    assert r.status_code == 200
+
+    a_lat, a_lon = 10.0, 10.0
+    b_lat, b_lon = 20.0, 20.0
+    c_lat, c_lon = 30.0, 30.0
+
+    user_tokens = _verified_user(client, 1362)
+    r = client.post(
+        "/v1/orders",
+        headers=_auth_header(user_tokens),
+        json=_base_body(
+            scheduled_at=order_time.isoformat(),
+            driver_id=driver_id,
+            from_lat=a_lat,
+            from_lon=a_lon,
+            to_lat=b_lat,
+            to_lon=b_lon,
+            est_duration_min=60,
+            is_round_trip=True,
+            wait_time_min=20,
+        ),
+    )
+    assert r.status_code == 201
+
+    async def fake_route_eta_seconds(from_lat, from_lon, to_lat, to_lon):
+        if (from_lat, from_lon, to_lat, to_lon) == (a_lat, a_lon, c_lat, c_lon):
+            return 2400.0, 10000.0  # A -> C = 40 real minutes
+        raise AssertionError(
+            f"unexpected ORS call {from_lat},{from_lon} -> {to_lat},{to_lon} "
+            "(should only ever check from the round trip's origin A, never B)"
+        )
+
+    monkeypatch.setattr("api.app.orders_api.ors_route_eta_seconds", fake_route_eta_seconds)
+
+    date_str = order_time.astimezone(_COMPANY_TZ).date().isoformat()
+    r = client.get(
+        "/v1/orders/slots",
+        headers=_auth_header(user_tokens),
+        params={
+            "date": date_str,
+            "driver_id": driver_id,
+            "duration_min": 20,
+            "from_lat": c_lat,
+            "from_lon": c_lon,
+        },
+    )
+    assert r.status_code == 200
+    local_times = {
+        dt.datetime.fromisoformat(s["time"]).astimezone(_COMPANY_TZ).strftime("%H:%M")
+        for s in r.json()["slots"]
+        if s["available"]
+    }
+
+    # busy_end = order_time(11:00) + est_duration_min(60) + gap_after(40+10
+    # margin=50) = 12:50 -> first free 30min-grid slot is 13:00 (12:30 still
+    # overlaps). If the code wrongly used B as the effective dropoff, the
+    # mocked ORS call itself would have raised (only A->C is allowed above).
+    assert "12:30" not in local_times, sorted(local_times)
+    assert "13:00" in local_times, sorted(local_times)
+
+
 def test_slots_bidirectional_gap_matches_worked_example(client, monkeypatch):
     # Mirrors a user-supplied worked example exactly: a driver already has a
     # booking 11:00-12:00 from A to B. A new candidate ride goes from C to D

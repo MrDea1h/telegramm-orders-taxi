@@ -319,6 +319,8 @@ export interface Order {
   cancel_reason: string | null
   cancelled_by: string | null
   proposed_scheduled_at: string | null
+  is_round_trip: boolean
+  wait_time_min: number | null
   driver_full_name: string | null
   driver_car_model: string | null
   driver_car_plate: string | null
@@ -354,6 +356,7 @@ export const orders = {
     fromLon?: number,
     toLat?: number,
     toLon?: number,
+    isRoundTrip?: boolean,
   ) => {
     const params = new URLSearchParams({ date })
     if (driverId) params.set('driver_id', driverId)
@@ -362,6 +365,7 @@ export const orders = {
     if (fromLon != null) params.set('from_lon', String(fromLon))
     if (toLat != null) params.set('to_lat', String(toLat))
     if (toLon != null) params.set('to_lon', String(toLon))
+    if (isRoundTrip) params.set('is_round_trip', 'true')
     return apiFetch<SlotsResult>(`/v1/orders/slots?${params.toString()}`, { auth: true })
   },
 
@@ -385,6 +389,8 @@ export const orders = {
     passengers?: number
     comment?: string
     driver_id?: string | null
+    is_round_trip?: boolean
+    wait_time_min?: number
   }) => apiFetch<Order>('/v1/orders', { method: 'POST', auth: true, body: input }),
 
   list: (scope: 'upcoming' | 'history') =>

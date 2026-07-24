@@ -122,6 +122,18 @@ export function OrderDetailScreen() {
                 </span>
               )}
             </div>
+            {order.is_round_trip && (
+              <div className="flex items-center gap-2 border-t border-[var(--tg-border)] pt-3">
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                  Туда-обратно
+                </span>
+                {order.wait_time_min != null && (
+                  <span className="text-[12px] text-[var(--tg-text-secondary)]">
+                    Ожидание на месте: {order.wait_time_min} мин
+                  </span>
+                )}
+              </div>
+            )}
           </Card>
 
           {order.driver_full_name && (

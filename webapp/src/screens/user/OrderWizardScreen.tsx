@@ -90,6 +90,8 @@ export function OrderWizardScreen() {
   const [selectedDate, setSelectedDate] = useState(() => toDateInputValue(firstWeekdayFromToday()))
   const [slotTime, setSlotTime] = useState<string | null>(null)
   const [driverChoice, setDriverChoice] = useState<'any' | string>('any')
+  const [isRoundTrip, setIsRoundTrip] = useState(false)
+  const [waitTimeMin, setWaitTimeMin] = useState(15)
   const [passengers, setPassengers] = useState(1)
   const [comment, setComment] = useState('')
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -119,14 +121,24 @@ export function OrderWizardScreen() {
     enabled: step >= 1 && !!from && !!to,
   })
 
+  // Round trip: driver waits at the destination for waitTimeMin, then
+  // drives back — total occupied time is the one-way leg counted twice
+  // plus the wait, not just the one-way ETA.
+  const totalDurationMin = eta
+    ? isRoundTrip
+      ? eta.duration_min * 2 + waitTimeMin
+      : eta.duration_min
+    : undefined
+
   const { data: slots, isLoading: slotsLoading } = useSlots(
     step >= 2 ? selectedDate : null,
     undefined,
-    eta?.duration_min ?? 30,
+    totalDurationMin ?? 30,
     from?.lat ?? undefined,
     from?.lon ?? undefined,
     to?.lat ?? undefined,
     to?.lon ?? undefined,
+    isRoundTrip,
   )
 
   // Live suggestions (businesses, landmarks, addresses) as the user types —
@@ -249,11 +261,13 @@ export function OrderWizardScreen() {
         to_lat: to.lat ?? undefined,
         to_lon: to.lon ?? undefined,
         scheduled_at: slotTime,
-        est_duration_min: eta?.duration_min,
+        est_duration_min: totalDurationMin,
         est_distance_km: eta?.distance_km,
         passengers,
         comment: comment || undefined,
         driver_id: driverChoice === 'any' ? null : driverChoice,
+        is_round_trip: isRoundTrip,
+        wait_time_min: isRoundTrip ? waitTimeMin : undefined,
       })
       haptics.notification('success')
       setCreatedOrderId(created.id)
@@ -480,10 +494,17 @@ export function OrderWizardScreen() {
               <RouteMap />
               <Card className="flex items-center justify-between p-4">
                 <div>
-                  <p className="text-[13px] text-[var(--tg-text-secondary)]">Примерное время в пути</p>
+                  <p className="text-[13px] text-[var(--tg-text-secondary)]">
+                    {isRoundTrip ? 'Время в пути (в одну сторону)' : 'Примерное время в пути'}
+                  </p>
                   <p className="text-[22px] font-semibold text-[var(--tg-text)]">
                     {etaLoading ? '…' : `≈ ${eta?.duration_min ?? '—'} мин`}
                   </p>
+                  {isRoundTrip && !etaLoading && eta && (
+                    <p className="mt-0.5 text-[12px] text-[var(--tg-text-secondary)]">
+                      Всего с ожиданием: ≈ {totalDurationMin} мин
+                    </p>
+                  )}
                 </div>
                 <div className="text-right">
                   <p className="text-[13px] text-[var(--tg-text-secondary)]">Расстояние</p>
@@ -497,6 +518,61 @@ export function OrderWizardScreen() {
                   ? 'Приблизительная оценка (по прямой, с запасом). Точное время зависит от трафика.'
                   : 'Реальный маршрут по дорогам. Без учёта текущих пробок.'}
               </p>
+
+              <Card className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[14px] font-medium text-[var(--tg-text)]">Туда-обратно</p>
+                    <p className="text-[12px] text-[var(--tg-text-secondary)]">
+                      Водитель подождёт на месте и отвезёт обратно
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      haptics.selection()
+                      setIsRoundTrip((v) => !v)
+                    }}
+                    className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                      isRoundTrip ? 'bg-primary' : 'bg-[var(--tg-border)]'
+                    }`}
+                    aria-label={`Туда-обратно: ${isRoundTrip ? 'включено' : 'выключено'}`}
+                  >
+                    <span
+                      className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                        isRoundTrip ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+                {isRoundTrip && (
+                  <div className="mt-3 flex items-center justify-between border-t border-[var(--tg-border)] pt-3">
+                    <p className="text-[13px] text-[var(--tg-text-secondary)]">Время ожидания на месте</p>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          haptics.selection()
+                          setWaitTimeMin((v) => Math.max(5, v - 5))
+                        }}
+                        className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--tg-surface)] text-[16px] text-[var(--tg-text)]"
+                      >
+                        −
+                      </button>
+                      <span className="w-14 text-center text-[14px] font-medium text-[var(--tg-text)]">
+                        {waitTimeMin} мин
+                      </span>
+                      <button
+                        onClick={() => {
+                          haptics.selection()
+                          setWaitTimeMin((v) => Math.min(180, v + 5))
+                        }}
+                        className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--tg-surface)] text-[16px] text-[var(--tg-text)]"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Card>
             </motion.div>
           )}
 
@@ -584,6 +660,13 @@ export function OrderWizardScreen() {
                   value={slotTime ? new Date(slotTime).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}
                 />
                 <Row label="Время в пути" value={eta ? `≈ ${eta.duration_min} мин · ${eta.distance_km} км` : '—'} />
+                {isRoundTrip && (
+                  <>
+                    <Row label="Поездка" value="Туда-обратно" />
+                    <Row label="Ожидание на месте" value={`${waitTimeMin} мин`} />
+                    <Row label="Занято у водителя всего" value={`≈ ${totalDurationMin} мин`} />
+                  </>
+                )}
               </Card>
 
               <div>

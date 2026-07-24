@@ -97,6 +97,8 @@ class OrderOut(BaseModel):
     cancel_reason: str | None
     cancelled_by: str | None
     proposed_scheduled_at: dt.datetime | None
+    is_round_trip: bool
+    wait_time_min: int | None
     driver_full_name: str | None = None
     driver_car_model: str | None = None
     driver_car_plate: str | None = None
@@ -117,6 +119,12 @@ class CreateOrderRequest(BaseModel):
     passengers: int = Field(default=1, ge=1, le=4)
     comment: str | None = Field(default=None, max_length=500)
     driver_id: uuid.UUID | None = None
+    # est_duration_min is expected to already be the *total* occupied time
+    # (one-way x2 + wait_time_min) when is_round_trip is set — same trust
+    # model as est_duration_min itself already has (client-computed, not
+    # re-derived server-side).
+    is_round_trip: bool = False
+    wait_time_min: int | None = Field(default=None, ge=0, le=180)
 
 
 class PatchOrderRequest(BaseModel):
@@ -246,6 +254,7 @@ async def get_slots(
     from_lon: float | None = Query(default=None),
     to_lat: float | None = Query(default=None),
     to_lon: float | None = Query(default=None),
+    is_round_trip: bool = Query(default=False),
     _user: User = Depends(require_verified),
     session: AsyncSession = Depends(get_session),
 ) -> SlotsOut:
@@ -349,6 +358,17 @@ async def get_slots(
             # outward — never shrink it — so a missing coordinate/failed ORS
             # call always falls back to the flat, more conservative buffer.
             #
+            # A round-trip ride ends back where it started, not at its own
+            # "to" address — the driver waits at the destination, then
+            # returns. So the *effective* end point feeding each gap check is
+            # from_address for a round trip, to_address otherwise: that
+            # applies to the EXISTING booking (o) for gap_after, and to the
+            # NEW candidate (this query) for gap_before.
+            new_effective_end_lat = from_lat if is_round_trip else to_lat
+            new_effective_end_lon = from_lon if is_round_trip else to_lon
+            o_effective_end_lat = o.from_lat if o.is_round_trip else o.to_lat
+            o_effective_end_lon = o.from_lon if o.is_round_trip else o.to_lon
+
             # compute_slots() already pads every candidate's own tail by
             # ORDER_BUFFER_MIN (its `buffer_min` param) before checking for
             # overlap — that's how the "before" side normally gets its
@@ -359,8 +379,12 @@ async def get_slots(
             # from gap_before) and get pushed earlier than the real
             # constraint requires. gap_after has no equivalent overlap since
             # compute_slots never pads a candidate's *start* side.
-            gap_before = await _real_gap_min(to_lat, to_lon, o.from_lat, o.from_lon, settings)
-            gap_after = await _real_gap_min(o.to_lat, o.to_lon, from_lat, from_lon, settings)
+            gap_before = await _real_gap_min(
+                new_effective_end_lat, new_effective_end_lon, o.from_lat, o.from_lon, settings
+            )
+            gap_after = await _real_gap_min(
+                o_effective_end_lat, o_effective_end_lon, from_lat, from_lon, settings
+            )
             extra_gap_before = max(0, gap_before - settings.ORDER_BUFFER_MIN)
             busy_start = o.scheduled_at - dt.timedelta(minutes=extra_gap_before)
             busy_end = o.scheduled_at + dt.timedelta(minutes=o.est_duration_min + gap_after)
@@ -464,6 +488,8 @@ async def create_order(
         passengers=body.passengers,
         comment=body.comment,
         idempotency_key=body.idempotency_key,
+        is_round_trip=body.is_round_trip,
+        wait_time_min=(body.wait_time_min or 15) if body.is_round_trip else None,
     )
     session.add(order)
     try:

@@ -19,3 +19,25 @@ export function useTouchAddress() {
     },
   })
 }
+
+function useInvalidateAddresses() {
+  const queryClient = useQueryClient()
+  return () => queryClient.invalidateQueries({ queryKey: ['addresses'] })
+}
+
+export function useCreateFavoriteAddress() {
+  const invalidate = useInvalidateAddresses()
+  return useMutation({
+    mutationFn: (input: { label: string; addressText: string }) =>
+      addresses.create({ label: input.label, address_text: input.addressText, is_favorite: true }),
+    onSuccess: invalidate,
+  })
+}
+
+export function useDeleteAddress() {
+  const invalidate = useInvalidateAddresses()
+  return useMutation({
+    mutationFn: (id: string) => addresses.remove(id),
+    onSuccess: invalidate,
+  })
+}

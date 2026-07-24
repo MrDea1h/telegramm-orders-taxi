@@ -85,9 +85,14 @@ async def notify_new_assignment(
     chat_id: int, order: Order, client_name: str, client_phone: str | None
 ) -> None:
     phone_line = f"\nТелефон: {client_phone}" if client_phone else ""
+    trip_line = (
+        f"\n🔁 Туда-обратно, ожидание на месте: {order.wait_time_min} мин"
+        if order.is_round_trip
+        else ""
+    )
     await _notify(
         chat_id,
         f"🆕 Вам назначена новая поездка на {_fmt_time(order.scheduled_at)}.\n"
-        f"{order.from_address} → {order.to_address}\n"
+        f"{order.from_address} → {order.to_address}{trip_line}\n"
         f"Клиент: {client_name}{phone_line}",
     )

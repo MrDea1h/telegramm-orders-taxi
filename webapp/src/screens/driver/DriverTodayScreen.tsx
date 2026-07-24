@@ -250,6 +250,18 @@ export function DriverTodayScreen() {
                         </span>
                       )}
                     </div>
+                    {order.is_round_trip && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                          Туда-обратно
+                        </span>
+                        {order.wait_time_min != null && (
+                          <span className="text-[11px] text-[var(--tg-text-secondary)]">
+                            Ожидание: {order.wait_time_min} мин
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {rejectingId === order.id ? (
                       <div className="mt-3 flex flex-col gap-2 border-t border-[var(--tg-border)] pt-3">

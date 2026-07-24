@@ -8,6 +8,7 @@ import { OnboardingScreen } from './screens/onboarding/OnboardingScreen'
 import { HomeScreen } from './screens/user/HomeScreen'
 import { OrderWizardScreen } from './screens/user/OrderWizardScreen'
 import { OrderDetailScreen } from './screens/user/OrderDetailScreen'
+import { AddressesScreen } from './screens/user/AddressesScreen'
 import { DriverTodayScreen } from './screens/driver/DriverTodayScreen'
 import { DriverScheduleScreen } from './screens/driver/DriverScheduleScreen'
 import { AdminScreen } from './screens/admin/AdminScreen'
@@ -62,6 +63,7 @@ function Screens() {
         {effectiveRole === 'user' && userScreen === 'home' && <HomeScreen />}
         {effectiveRole === 'user' && userScreen === 'wizard' && <OrderWizardScreen />}
         {effectiveRole === 'user' && userScreen === 'orderDetail' && <OrderDetailScreen />}
+        {effectiveRole === 'user' && userScreen === 'addresses' && <AddressesScreen />}
       </motion.div>
     </AnimatePresence>
   )

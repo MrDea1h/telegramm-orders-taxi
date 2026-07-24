@@ -51,6 +51,21 @@ export function HomeScreen() {
             <h1 className="truncate text-[20px] font-semibold">{givenName ?? 'Коллега'}</h1>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              onClick={() => goTo('addresses')}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white/15 text-white active:bg-white/25"
+              aria-label="Мои адреса"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 21s7-6.1 7-11.2A7 7 0 0 0 5 9.8C5 14.9 12 21 12 21Z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinejoin="round"
+                />
+                <circle cx="12" cy="9.5" r="2" stroke="currentColor" strokeWidth="1.8" />
+              </svg>
+            </button>
             <Avatar name={user?.full_name ?? '?'} color="rgba(255,255,255,0.25)" size={40} />
             <LogoutButton variant="light" />
           </div>
